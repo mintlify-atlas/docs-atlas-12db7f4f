@@ -1,0 +1,230 @@
+---
+title: "hooks.py"
+description: "Text overlay generation for viral hook text on videos"
+---
+
+## Overview
+
+The `hooks.py` module generates styled text overlays ("hooks") for videos. It creates white boxes with serif text, shadows, and rounded corners - optimized for vertical video engagement.
+
+## Key Functions
+
+### add_hook_to_video
+
+```python
+def add_hook_to_video(
+    video_path: str,
+    text: str,
+    output_path: str,
+    position: str = "top",
+    font_scale: float = 1.0
+) -> bool
+```
+
+Overlays hook text onto video at specified position.
+
+**Parameters:**
+- `video_path` (str): Path to input video file
+- `text` (str): Hook text to overlay (supports newlines `\n` for manual breaks)
+- `output_path` (str): Path for output video
+- `position` (str): Vertical position - `"top"`, `"center"`, or `"bottom"` (default: `"top"`)
+- `font_scale` (float): Font size multiplier (default: 1.0)
+
+**Returns:**
+- `bool`: True if successful (raises exception on failure)
+
+**Process:**
+1. Probes video dimensions using `ffprobe`
+2. Generates hook image via `create_hook_image()`
+3. Calculates overlay position based on `position` parameter
+4. Uses FFmpeg `overlay` filter to composite text onto video
+5. Cleans up temporary image file
+
+**Position Mapping:**
+
+| Position   | Y Coordinate Formula      | Visual Placement |
+|------------|---------------------------|------------------|
+| `"top"`    | `video_height * 0.20`     | 20% from top     |
+| `"center"` | `(video_height - box_h) / 2` | Vertical center  |
+| `"bottom"` | `video_height * 0.70`     | 70% from top     |
+
+X is always centered: `(video_width - box_width) / 2`
+
+**FFmpeg Command:**
+```bash
+ffmpeg -y \
+  -i video.mp4 \
+  -i hook_overlay.png \
+  -filter_complex "[0:v][1:v]overlay=X:Y" \
+  -c:a copy \
+  -c:v libx264 -preset fast -crf 22 \
+  output.mp4
+```
+
+### create_hook_image
+
+```python
+def create_hook_image(
+    text: str,
+    target_width: int,
+    output_image_path: str = "hook_overlay.png",
+    font_scale: float = 1.0
+) -> tuple[str, int, int]
+```
+
+Generates a styled text box image with automatic text wrapping.
+
+**Parameters:**
+- `text` (str): Text content (supports `\n` for manual line breaks)
+- `target_width` (int): Maximum box width (typically 90% of video width)
+- `output_image_path` (str): Path to save PNG image (default: `"hook_overlay.png"`)
+- `font_scale` (float): Font size multiplier (default: 1.0)
+
+**Returns:**
+- `tuple` of:
+  - `img_path` (str): Path to generated image
+  - `box_width` (int): Final box width in pixels
+  - `box_height` (int): Final box height in pixels
+
+**Styling:**
+- **Font**: Noto Serif Bold (downloaded automatically)
+- **Font Size**: `target_width * 0.05 * font_scale` (approx 5% of video width)
+- **Text Color**: Black
+- **Box Color**: White with 94% opacity (`RGBA(255, 255, 255, 240)`)
+- **Padding**: 30px horizontal, 25px vertical
+- **Line Spacing**: 20px
+- **Corner Radius**: 20px
+- **Shadow**: 5px offset, 10px blur, 39% opacity (`RGBA(0, 0, 0, 100)`)
+
+**Text Wrapping:**
+- Pixel-based wrapping using Pillow's `textbbox()`
+- Max text width: `target_width - 60px` (accounting for padding)
+- Respects manual newlines (`\n`)
+- Minimum box width: 30% of `target_width`
+
+### download_font_if_needed
+
+```python
+def download_font_if_needed() -> None
+```
+
+Downloads Noto Serif Bold font from Google Fonts if not present locally.
+
+**Font Details:**
+- **URL**: `https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSerif/NotoSerif-Bold.ttf`
+- **Local Path**: `fonts/NotoSerif-Bold.ttf`
+- **Fallback**: Uses Pillow's default font if download fails
+
+**Auto-called by:** `create_hook_image()`
+
+## Constants
+
+```python
+FONT_URL = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSerif/NotoSerif-Bold.ttf"
+FONT_DIR = "fonts"
+FONT_PATH = "fonts/NotoSerif-Bold.ttf"
+```
+
+## Font Rendering System
+
+The module uses **Pillow (PIL)** for high-quality text rendering with advanced typography:
+
+1. **Font Loading**: TrueType font with dynamic sizing
+2. **Text Measurement**: Pixel-accurate bounding box calculations
+3. **Smart Wrapping**: Word-by-word wrapping to maximize readability
+4. **Layer Composition**:
+   - Shadow layer (blurred)
+   - White box (sharp, overlaid on shadow)
+   - Black text (overlaid on box)
+
+## Example Usage
+
+### Basic Hook
+
+```python
+from hooks import add_hook_to_video
+
+add_hook_to_video(
+    video_path="clip_1.mp4",
+    text="POV: You realized the secret",
+    output_path="clip_1_hooked.mp4",
+    position="top"
+)
+```
+
+### Multiline Hook
+
+```python
+add_hook_to_video(
+    video_path="clip_2.mp4",
+    text="This changes everything\nWatch until the end",
+    output_path="clip_2_hooked.mp4",
+    position="center",
+    font_scale=1.2  # 20% larger font
+)
+```
+
+### Large Bottom Hook
+
+```python
+add_hook_to_video(
+    video_path="clip_3.mp4",
+    text="Wait for it...",
+    output_path="clip_3_hooked.mp4",
+    position="bottom",
+    font_scale=1.5  # 50% larger
+)
+```
+
+## Visual Specification
+
+### Box Layout
+
+```
+┌─────────────────────────────────────┐
+│                                     │ ← 25px padding
+│    This is the hook text that      │
+│    automatically wraps to fit      │ ← 20px line spacing
+│    within the target width         │
+│                                     │ ← 25px padding
+└─────────────────────────────────────┘
+  ↑                                 ↑
+  30px                              30px
+  padding                           padding
+```
+
+### Shadow Effect
+
+```
+     ┌─────────┐
+     │  Box    │
+  ┌──┴─────────┴──┐
+  │    Shadow     │ ← 5px offset, 10px blur
+  └───────────────┘
+```
+
+## Position Logic
+
+```python
+# X position (always centered)
+overlay_x = (video_width - box_width) // 2
+
+# Y position (varies by parameter)
+if position == "top":
+    overlay_y = int(video_height * 0.20)  # 20% from top
+elif position == "center":
+    overlay_y = (video_height - box_height) // 2
+else:  # bottom
+    overlay_y = int(video_height * 0.70)  # 70% from top
+```
+
+## Dependencies
+
+- `Pillow` (PIL): Image generation and text rendering
+  - `Image`: Canvas creation
+  - `ImageDraw`: Drawing shapes and text
+  - `ImageFont`: TrueType font loading
+  - `ImageFilter`: Gaussian blur for shadows
+- `ffmpeg`: Video overlay composition (subprocess)
+- `ffprobe`: Video dimension probing
+- `urllib.request`: Font file download

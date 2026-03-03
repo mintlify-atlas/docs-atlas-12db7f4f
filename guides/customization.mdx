@@ -1,0 +1,497 @@
+---
+title: Customization
+description: Configure output formats, detection parameters, and styling options
+---
+
+## Overview
+
+OpenShorts provides numerous customization options to tailor the processing pipeline to your needs. These settings control aspect ratios, scene detection sensitivity, fonts, subtitle styling, and more.
+
+## Aspect Ratio & Crop Dimensions
+
+The output aspect ratio is controlled by a global constant:
+
+```python
+# main.py:29
+ASPECT_RATIO = 9 / 16  # Standard vertical video (1080x1920)
+```
+
+### Output Resolution Calculation
+
+```python
+# main.py:613-618
+original_width, original_height = get_video_resolution(input_video)
+
+OUTPUT_HEIGHT = original_height  # Preserve original height
+OUTPUT_WIDTH = int(OUTPUT_HEIGHT * ASPECT_RATIO)
+if OUTPUT_WIDTH % 2 != 0:
+    OUTPUT_WIDTH += 1  # Ensure even dimensions for codec compatibility
+```
+
+**How it works:**
+- Input: 1920x1080 (landscape) → Output: 607x1080
+- Input: 3840x2160 (4K) → Output: 1215x2160
+- Input: 1280x720 (HD) → Output: 405x720
+
+<Note>
+The system **always preserves input height** and calculates width based on the aspect ratio. This ensures no vertical quality loss while maximizing the output resolution.
+</Note>
+
+### Custom Aspect Ratios
+
+Modify the constant for different formats:
+
+<CodeGroup>
+```python Square (1:1)
+ASPECT_RATIO = 1 / 1  # 1080x1080 for Instagram posts
+```
+
+```python 4:5 (Instagram Portrait)
+ASPECT_RATIO = 4 / 5  # 864x1080
+```
+
+```python 2:3 (Pinterest)
+ASPECT_RATIO = 2 / 3  # 720x1080
+```
+
+```python Ultra-Vertical
+ASPECT_RATIO = 9 / 21  # 462x1080 (experimental)
+```
+</CodeGroup>
+
+<Warning>
+**Important:** After changing `ASPECT_RATIO`, rebuild the Docker container:
+
+```bash
+docker compose down
+docker compose up --build
+```
+</Warning>
+
+## Scene Detection Parameters
+
+PySceneDetect's `ContentDetector` analyzes pixel changes between frames:
+
+```python
+# main.py:423-433
+def detect_scenes(video_path):
+    video_manager = VideoManager([video_path])
+    scene_manager = SceneManager()
+    scene_manager.add_detector(ContentDetector())  # Uses default threshold
+    video_manager.set_downscale_factor()           # Auto-downscale for speed
+    video_manager.start()
+    scene_manager.detect_scenes(frame_source=video_manager)
+    scene_list = scene_manager.get_scene_list()
+```
+
+### Default Settings
+
+- **Threshold**: 30.0 (default in PySceneDetect)
+- **Downscale Factor**: Automatic (based on resolution)
+- **Min Scene Length**: 0.6 seconds (15 frames at 25fps)
+
+### Adjust Sensitivity
+
+For more/fewer scene cuts, modify the threshold:
+
+```python
+# main.py:426
+# Lower = more sensitive (more cuts)
+# Higher = less sensitive (fewer cuts)
+scene_manager.add_detector(ContentDetector(threshold=25.0))  # More cuts
+scene_manager.add_detector(ContentDetector(threshold=40.0))  # Fewer cuts
+```
+
+**Recommended values:**
+- **Action/Sports**: 20-25 (detect quick movements)
+- **Interviews/Podcasts**: 35-45 (reduce false cuts)
+- **Mixed Content**: 30 (default, balanced)
+
+### Scene Strategy Thresholds
+
+```python
+# main.py:404-418
+avg_faces = sum(face_counts) / len(face_counts)
+
+if avg_faces > 1.2 or avg_faces < 0.5:
+    strategies.append('GENERAL')  # Multiple people or landscapes
+else:
+    strategies.append('TRACK')    # Single subject
+```
+
+**Customize face thresholds:**
+
+```python
+# More aggressive tracking (track even with 2 people)
+if avg_faces > 2.0 or avg_faces < 0.5:
+    strategies.append('GENERAL')
+
+# Stricter tracking (require clear single subject)
+if avg_faces > 0.8 or avg_faces < 0.3:
+    strategies.append('GENERAL')
+```
+
+## Camera Movement Configuration
+
+The `SmoothedCameraman` class controls how the camera follows subjects:
+
+### Safe Zone Radius
+
+```python
+# main.py:102-104
+# How far subject can move before camera reacts
+self.safe_zone_radius = self.crop_width * 0.25  # 25% of crop width
+```
+
+**Larger safe zone** (0.35-0.40):
+- More stable ("tripod-like")
+- Less reactive to small movements
+- Better for talking heads
+
+**Smaller safe zone** (0.15-0.20):
+- More dynamic tracking
+- Follows subject closely
+- Better for moving subjects
+
+### Camera Speed
+
+```python
+# main.py:126-135
+if abs(diff) > self.crop_width * 0.5:
+    speed = 15.0  # Fast re-frame (scene change)
+else:
+    speed = 3.0   # Slow, steady pan (gradual movement)
+```
+
+**Adjust pan speed:**
+
+```python
+# Slower, cinematic movement
+speed = 2.0   # Gentle pan
+speed = 10.0  # Fast reframe
+
+# Faster, more responsive
+speed = 5.0   # Active pan
+speed = 20.0  # Snap reframe
+```
+
+## Speaker Tracking Configuration
+
+Prevents rapid switching between multiple speakers:
+
+```python
+# main.py:169-178
+class SpeakerTracker:
+    def __init__(self, stabilization_frames=15, cooldown_frames=30):
+        self.stabilization_threshold = stabilization_frames  # Frames to confirm new speaker
+        self.switch_cooldown = cooldown_frames               # Min frames before switching
+```
+
+### Stabilization Parameters
+
+<Tabs>
+  <Tab title="Default (Balanced)">
+    ```python
+    stabilization_frames=15  # 0.5s at 30fps
+    cooldown_frames=30       # 1.0s at 30fps
+    ```
+    
+    Best for: Interviews, podcasts, debates
+  </Tab>
+
+  <Tab title="Aggressive Tracking">
+    ```python
+    stabilization_frames=5   # 0.17s - quick response
+    cooldown_frames=15       # 0.5s - switches faster
+    ```
+    
+    Best for: Fast-paced conversations, multiple speakers
+  </Tab>
+
+  <Tab title="Locked Camera">
+    ```python
+    stabilization_frames=45  # 1.5s - very stable
+    cooldown_frames=90       # 3.0s - rarely switches
+    ```
+    
+    Best for: Single presenter, minimal movement
+  </Tab>
+</Tabs>
+
+### Hysteresis Factor
+
+```python
+# main.py:251-252
+if pid == self.active_speaker_id:
+    total_score *= 3.0  # Sticky factor (preference for current speaker)
+```
+
+**Adjust stickiness:**
+- `2.0` - Switch more easily
+- `3.0` - Default (balanced)
+- `5.0` - Very sticky (avoid switching)
+
+## Font Customization
+
+### Hook Text Font
+
+```python
+# hooks.py:7-9
+FONT_URL = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSerif/NotoSerif-Bold.ttf"
+FONT_DIR = "fonts"
+FONT_PATH = os.path.join(FONT_DIR, "NotoSerif-Bold.ttf")
+```
+
+**Use a custom font:**
+
+<Steps>
+  <Step title="Download Font">
+    Place your `.ttf` file in the `fonts/` directory:
+    ```bash
+    mkdir -p fonts
+    cp MyCustomFont-Bold.ttf fonts/
+    ```
+  </Step>
+
+  <Step title="Update Path">
+    ```python
+    # hooks.py:9
+    FONT_PATH = os.path.join(FONT_DIR, "MyCustomFont-Bold.ttf")
+    ```
+  </Step>
+
+  <Step title="Rebuild Container">
+    ```bash
+    docker compose up --build
+    ```
+  </Step>
+</Steps>
+
+**Recommended fonts:**
+- **Montserrat-Bold**: Modern, clean sans-serif
+- **Bebas Neue**: Condensed, impactful
+- **Oswald-Bold**: Strong, professional
+- **Roboto Condensed**: Tech-focused
+
+### Font Sizing
+
+```python
+# hooks.py:44-46
+base_font_size = int(target_width * 0.05)  # 5% of video width
+font_size = int(base_font_size * font_scale)
+```
+
+**Adjust base percentage:**
+
+```python
+base_font_size = int(target_width * 0.04)  # Smaller (4%)
+base_font_size = int(target_width * 0.07)  # Larger (7%)
+```
+
+### Hook Box Styling
+
+```python
+# hooks.py:36-42
+padding_x = 30           # Horizontal padding
+padding_y = 25           # Vertical padding
+line_spacing = 20        # Space between lines
+cornerradius = 20        # Rounded corners
+shadow_offset = (5, 5)   # Shadow position
+shadow_blur = 10         # Shadow softness
+```
+
+## Subtitle Positioning & Sizing
+
+### Position Presets
+
+```python
+# subtitles.py:154-167
+align_lower = str(alignment).lower()
+if align_lower == 'top': 
+    ass_alignment = 6   # Top-Center
+elif align_lower == 'middle': 
+    ass_alignment = 10  # Mid-Center
+elif align_lower == 'bottom': 
+    ass_alignment = 2   # Bottom-Center (default)
+```
+
+### Font Size Scaling
+
+```python
+# subtitles.py:175-176
+final_fontsize = int(fontsize * 0.5)  # Scale down by 50%
+if final_fontsize < 8: final_fontsize = 8  # Minimum size
+```
+
+**Custom scaling:**
+
+```python
+# Larger subtitles (70% of input)
+final_fontsize = int(fontsize * 0.7)
+
+# No scaling (use exact size)
+final_fontsize = fontsize
+```
+
+### Vertical Margin
+
+```python
+# subtitles.py:194
+MarginV=25  # Pixels from top/bottom edge
+```
+
+**Adjust margins:**
+
+```python
+MarginV=50   # More space from edge
+MarginV=10   # Closer to edge
+```
+
+### Subtitle Box Opacity
+
+```python
+# subtitles.py:192
+OutlineColour=&H60000000  # &H60 = ~40% opacity
+```
+
+**Opacity values (hex):**
+- `&H00` = 100% transparent
+- `&H40` = ~25% opacity (subtle)
+- `&H60` = ~40% opacity (default)
+- `&H80` = ~50% opacity
+- `&HFF` = 100% opaque (solid black)
+
+### Word Grouping
+
+```python
+# subtitles.py:62
+def generate_srt(transcript, clip_start, clip_end, output_path, 
+                 max_chars=20, max_duration=2.0):
+```
+
+**Customize grouping:**
+
+```python
+max_chars=15        # Shorter lines (3-4 words)
+max_chars=30        # Longer lines (5-7 words)
+max_duration=1.5    # Faster pacing
+max_duration=3.0    # Slower pacing
+```
+
+## Environment Variables
+
+Configure runtime behavior without code changes:
+
+<CodeGroup>
+```bash Concurrency Control
+# .env
+MAX_CONCURRENT_JOBS=10  # Process 10 videos simultaneously
+```
+
+```bash Job Retention
+# app.py:31 (requires code change)
+JOB_RETENTION_SECONDS=7200  # 2 hours instead of 1
+```
+
+```bash File Size Limit
+# app.py:30 (requires code change)
+MAX_FILE_SIZE_MB=4096  # 4GB instead of 2GB
+```
+
+```bash AWS S3 Region
+# .env
+AWS_REGION=eu-west-1
+AWS_S3_BUCKET=my-custom-bucket
+```
+</CodeGroup>
+
+## AI Model Configuration
+
+### Gemini Model Selection
+
+```python
+# editor.py:12
+self.model_name = "gemini-3-flash-preview"
+
+# Alternative models
+self.model_name = "gemini-2.5-flash"  # Faster, cheaper
+self.model_name = "gemini-2.5-pro"    # More creative, expensive
+```
+
+### Whisper Model Size
+
+```python
+# main.py:758
+model = WhisperModel("base", device="cpu", compute_type="int8")
+
+# Alternatives
+model = WhisperModel("tiny", ...)   # Faster, less accurate
+model = WhisperModel("small", ...)  # Balanced
+model = WhisperModel("medium", ...) # Better accuracy, slower
+model = WhisperModel("large", ...)  # Best accuracy, very slow
+```
+
+<Note>
+**Performance vs Accuracy:**
+- `tiny` = 32M params, ~1x speed, ~85% accuracy
+- `base` = 74M params, ~1.5x speed, ~90% accuracy (default)
+- `small` = 244M params, ~3x speed, ~94% accuracy
+- `medium` = 769M params, ~6x speed, ~96% accuracy
+- `large` = 1550M params, ~10x speed, ~98% accuracy
+</Note>
+
+## Face Detection Confidence
+
+```python
+# main.py:76
+face_detection = mp_face_detection.FaceDetection(
+    model_selection=1,           # 0=short-range, 1=full-range
+    min_detection_confidence=0.5 # 0.0-1.0
+)
+```
+
+**Adjust confidence:**
+
+```python
+min_detection_confidence=0.3  # Detect more faces (more false positives)
+min_detection_confidence=0.7  # Only confident detections (may miss some)
+```
+
+## FFmpeg Encoding Settings
+
+Control output quality and speed:
+
+```python
+# main.py:633-634
+command = [
+    'ffmpeg', '-y', '-f', 'rawvideo', '-vcodec', 'rawvideo',
+    '-s', f'{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}', '-pix_fmt', 'bgr24',
+    '-r', str(fps), '-i', '-', '-c:v', 'libx264',
+    '-preset', 'fast',  # Encoding speed
+    '-crf', '23',       # Quality (18=high, 28=low)
+    '-an', temp_video_output
+]
+```
+
+**Preset options** (speed vs compression):
+- `ultrafast` - Fastest, largest files
+- `superfast`
+- `veryfast`
+- `faster`
+- `fast` (default)
+- `medium` - Balanced
+- `slow` - Better compression
+- `slower`
+- `veryslow` - Best compression, slowest
+
+**CRF values** (quality):
+- `18` - Visually lossless (large files)
+- `23` - High quality (default)
+- `28` - Medium quality
+- `32` - Low quality (small files)
+
+## Next Steps
+
+- [Set up social media posting](/guides/social-integration)
+- [Configure AWS S3 backup](/guides/aws-s3-backup)
+- [Advanced editing techniques](/guides/editing-clips)

@@ -1,0 +1,151 @@
+---
+title: API Overview
+description: Introduction to the OpenShorts REST API for programmatic video processing
+---
+
+## Introduction
+
+The OpenShorts API provides a RESTful interface for transforming long-form videos into viral-ready short clips. Built with FastAPI, it offers both synchronous and asynchronous endpoints for video processing, AI effects, subtitles, voice dubbing, and social media distribution.
+
+## Base URL
+
+```
+http://localhost:8000
+```
+
+For production deployments, use your configured `VITE_API_URL` environment variable.
+
+## Authentication
+
+OpenShorts uses API key-based authentication via HTTP headers. Different endpoints require different API keys:
+
+### Gemini API Key (Required)
+
+Used for core video processing, AI effects, and thumbnail generation.
+
+```bash
+X-Gemini-Key: YOUR_GEMINI_API_KEY
+```
+
+### ElevenLabs API Key (Optional)
+
+Required only for voice dubbing features.
+
+```bash
+X-ElevenLabs-Key: YOUR_ELEVENLABS_API_KEY
+```
+
+### Upload-Post API Key (Optional)
+
+Required only for social media distribution.
+
+```bash
+X-Upload-Post-Key: YOUR_UPLOAD_POST_API_KEY
+```
+
+<Note>
+  API keys are **never stored server-side**. The frontend encrypts and stores them in localStorage, sending them via headers only when needed.
+</Note>
+
+## Request/Response Format
+
+All endpoints accept and return JSON unless otherwise specified (file uploads use `multipart/form-data`).
+
+### Standard Response Format
+
+```json
+{
+  "success": true,
+  "data": {...}
+}
+```
+
+### Error Response Format
+
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+## Rate Limits & Concurrency
+
+The server enforces concurrency limits via the `MAX_CONCURRENT_JOBS` environment variable (default: 5). Additional jobs are queued and processed sequentially.
+
+- **Job Retention**: 1 hour (3600 seconds)
+- **Max File Size**: 2048 MB (2 GB)
+- **Concurrent Jobs**: Configurable via `MAX_CONCURRENT_JOBS` env var
+
+## Job Lifecycle
+
+Processing jobs follow this state machine:
+
+1. **queued** - Job accepted, waiting for worker slot
+2. **processing** - Worker executing video analysis and clip extraction
+3. **completed** - All clips generated successfully
+4. **failed** - Processing error (check logs for details)
+
+Use the `/api/status/{job_id}` endpoint to poll job progress.
+
+## Core Workflow
+
+```mermaid
+graph LR
+    A[Submit Video] --> B[Poll Status]
+    B --> C{Completed?}
+    C -->|Yes| D[Apply Effects]
+    C -->|No| B
+    D --> E[Add Subtitles]
+    E --> F[Add Hook]
+    F --> G[Translate]
+    G --> H[Post to Social]
+```
+
+## Quick Start Example
+
+```bash
+# 1. Submit a video for processing
+curl -X POST http://localhost:8000/api/process \
+  -H "X-Gemini-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://youtube.com/watch?v=VIDEO_ID"}'
+
+# Response: {"job_id": "abc-123", "status": "queued"}
+
+# 2. Poll for completion
+curl http://localhost:8000/api/status/abc-123
+
+# 3. Apply AI effects to a clip
+curl -X POST http://localhost:8000/api/edit \
+  -H "X-Gemini-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"job_id": "abc-123", "clip_index": 0}'
+
+# 4. Add subtitles
+curl -X POST http://localhost:8000/api/subtitle \
+  -H "Content-Type: application/json" \
+  -d '{"job_id": "abc-123", "clip_index": 0, "position": "bottom", "font_size": 16}'
+```
+
+## Error Codes
+
+| Status Code | Meaning |
+|-------------|----------|
+| 200 | Success |
+| 201 | Created successfully |
+| 202 | Accepted (async processing started) |
+| 400 | Bad request (missing parameters or invalid input) |
+| 404 | Resource not found (job_id, clip, or file) |
+| 413 | Payload too large (exceeds 2GB limit) |
+| 500 | Internal server error (check logs) |
+
+## SDKs & Libraries
+
+Currently, OpenShorts provides a raw REST API. Community SDKs are welcome!
+
+## Next Steps
+
+- [Process Videos](/api/process) - Submit videos for clip extraction
+- [Check Status](/api/status) - Poll job progress
+- [Apply Effects](/api/edit) - AI-powered video enhancements
+- [Add Subtitles](/api/subtitle) - Burn subtitles with custom styling

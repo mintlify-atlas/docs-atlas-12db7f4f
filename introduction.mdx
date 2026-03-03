@@ -1,0 +1,135 @@
+---
+title: Welcome to OpenShorts
+description: Transform long videos into viral vertical clips with AI-powered automation
+---
+
+# Welcome to OpenShorts 🎬
+
+OpenShorts is an all-in-one open-source solution to automate the creation and distribution of viral vertical content. Transform long YouTube videos or local files into high-potential short clips optimized for **TikTok**, **Instagram Reels**, and **YouTube Shorts**.
+
+<iframe
+  width="100%"
+  height="400"
+  src="https://www.youtube.com/embed/xlyjD1qCaX0"
+  title="OpenShorts Tutorial"
+  frameborder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowfullscreen
+></iframe>
+
+## What Makes OpenShorts Special?
+
+OpenShorts leverages state-of-the-art AI to handle the entire content lifecycle—from viral moment detection to social media distribution—all in one automated pipeline.
+
+### AI-Powered Intelligence
+
+- **Viral Moment Detection**: Google Gemini 2.0 Flash analyzes your video transcript to identify 3-15 of the most engaging moments based on hooks and engagement potential
+- **Automatic Copywriting**: Generates SEO-optimized titles and descriptions for all platforms
+- **Smart Scene Analysis**: Pre-scans every scene to determine the optimal framing strategy
+
+### Advanced Video Processing
+
+- **Dual-Mode AI Cropping**: Automatically detects scene composition and applies the best strategy:
+  - **TRACK Mode**: MediaPipe face detection + YOLOv8 for single-subject tracking with "Heavy Tripod" stabilization that eliminates jitter
+  - **GENERAL Mode**: Professional blurred-background layout for groups or landscapes
+- **Speaker Identification**: Sticks to the active speaker and avoids erratic switching
+- **High-Speed Transcription**: Faster-Whisper provides CPU-optimized transcription with word-level timestamps
+
+### Professional Publishing Tools
+
+- **YouTube Studio Integration**: Complete publishing pipeline with AI-generated titles, thumbnails, descriptions with chapters, and direct YouTube upload
+- **AI Voice Dubbing**: ElevenLabs integration for translating clips to 30+ languages with voice cloning
+- **Direct Social Posting**: Share clips to TikTok, Instagram, and YouTube with a single click via Upload-Post integration
+- **Automated S3 Backup**: Silent background upload of generated clips to AWS S3
+
+### Modern Dashboard Experience
+
+- **Real-time Progress**: Watch clips appear as they're generated with live results feed
+- **Log Streaming**: Follow the technical process with real-time updates
+- **Dark Mode Interface**: Premium glassmorphism design with responsive layout
+- **Profile Management**: Manage multiple social accounts easily
+
+## How It Works
+
+OpenShorts implements a complete 10-stage processing pipeline:
+
+<Steps>
+  <Step title="Ingestion">
+    Downloads YouTube videos via yt-dlp or handles local file uploads
+  </Step>
+  <Step title="Transcription">
+    Faster-Whisper converts audio to text with word-level timestamps in seconds
+  </Step>
+  <Step title="Scene Detection">
+    PySceneDetect identifies segment boundaries for precise clip extraction
+  </Step>
+  <Step title="AI Analysis">
+    Gemini 2.0 Flash reads the transcript and selects 3-15 viral moments (15-60 seconds each)
+  </Step>
+  <Step title="Extraction">
+    FFmpeg precisely cuts the selected segments from the original video
+  </Step>
+  <Step title="Reframing">
+    AI-powered visual tracking crops clips to 9:16 vertical format with intelligent stabilization
+  </Step>
+  <Step title="Effects & Subtitles">
+    Optional AI-generated FFmpeg filters and subtitle burning
+  </Step>
+  <Step title="Hook Overlay">
+    Text overlays with styled fonts to maximize engagement
+  </Step>
+  <Step title="S3 Backup">
+    Automated silent upload of clips and metadata to AWS S3
+  </Step>
+  <Step title="Distribution">
+    One-click posting to TikTok, Instagram, and YouTube via Upload-Post API
+  </Step>
+</Steps>
+
+## Get Started in Minutes
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Get OpenShorts running with Docker in under 5 minutes
+  </Card>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Detailed setup instructions and environment configuration
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the REST API endpoints and integration options
+  </Card>
+  <Card title="YouTube Studio" icon="youtube" href="/features/youtube-studio">
+    Learn how to use AI-powered title and thumbnail generation
+  </Card>
+</CardGroup>
+
+## Real-World Use Cases
+
+<CardGroup cols={3}>
+  <Card title="Content Creators" icon="video">
+    Automatically extract the best moments from podcasts and interviews for social media growth
+  </Card>
+  <Card title="Marketing Teams" icon="megaphone">
+    Repurpose webinars and presentations into bite-sized promotional clips
+  </Card>
+  <Card title="Educators" icon="graduation-cap">
+    Transform long lectures into engaging vertical clips for student engagement
+  </Card>
+  <Card title="News Outlets" icon="newspaper">
+    Quickly create shareable clips from live streams and broadcasts
+  </Card>
+  <Card title="Agencies" icon="briefcase">
+    Scale social media content production for multiple clients
+  </Card>
+  <Card title="Influencers" icon="star">
+    Multiply your content reach by posting to TikTok, Instagram, and YouTube simultaneously
+  </Card>
+</CardGroup>
+
+## Open Source & MIT Licensed
+
+OpenShorts is completely open source under the MIT License. Use it, modify it, and scale it for your needs—whether you're an individual creator or running a content production agency.
+
+<Note>
+  **Ready to create viral content?** Head over to the [Quickstart](/quickstart) guide to get OpenShorts running in minutes.
+</Note>

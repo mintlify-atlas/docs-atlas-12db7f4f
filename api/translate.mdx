@@ -1,0 +1,316 @@
+---
+title: Voice Translation
+description: AI-powered voice dubbing to 30+ languages with ElevenLabs
+---
+
+## POST /api/translate
+
+Translates a video clip's audio to a different language using ElevenLabs' AI dubbing technology. The system:
+
+1. Extracts the original audio track
+2. Uploads to ElevenLabs Dubbing API
+3. Waits for AI-generated dubbed audio (preserves speaker voice characteristics)
+4. Replaces the original audio with the dubbed version
+
+<Note>
+  This endpoint is **synchronous** and may take 2-5 minutes depending on video length and ElevenLabs queue.
+</Note>
+
+## Authentication
+
+<ParamField header="X-ElevenLabs-Key" type="string" required>
+  Your ElevenLabs API key for dubbing services
+</ParamField>
+
+## Request Body
+
+<ParamField body="job_id" type="string" required>
+  The job ID from `/api/process`
+</ParamField>
+
+<ParamField body="clip_index" type="integer" required>
+  Zero-based index of the clip to translate
+</ParamField>
+
+<ParamField body="target_language" type="string" required>
+  Target language code (e.g., `es` for Spanish, `fr` for French). See [language list](#supported-languages)
+</ParamField>
+
+<ParamField body="source_language" type="string">
+  Source language code (auto-detected if omitted)
+</ParamField>
+
+<ParamField body="input_filename" type="string">
+  Specific video filename to translate (for effect chaining)
+</ParamField>
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "clip_index": 0,
+  "target_language": "es",
+  "source_language": "en"  // Optional
+}
+```
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on successful translation
+</ResponseField>
+
+<ResponseField name="new_video_url" type="string" required>
+  Relative URL to the translated video file
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/translated_es_video_123_clip_1.mp4"
+}
+```
+
+## GET /api/translate/languages
+
+Returns the list of supported languages for translation.
+
+### Response
+
+<ResponseField name="languages" type="array" required>
+  Array of language objects with code, name, and native name
+</ResponseField>
+
+```json
+{
+  "languages": [
+    {"code": "en", "name": "English", "native_name": "English"},
+    {"code": "es", "name": "Spanish", "native_name": "Español"},
+    {"code": "fr", "name": "French", "native_name": "Français"},
+    {"code": "de", "name": "German", "native_name": "Deutsch"},
+    {"code": "it", "name": "Italian", "native_name": "Italiano"},
+    {"code": "pt", "name": "Portuguese", "native_name": "Português"},
+    {"code": "pl", "name": "Polish", "native_name": "Polski"},
+    {"code": "tr", "name": "Turkish", "native_name": "Türkçe"},
+    {"code": "ru", "name": "Russian", "native_name": "Русский"},
+    {"code": "nl", "name": "Dutch", "native_name": "Nederlands"},
+    {"code": "cs", "name": "Czech", "native_name": "Čeština"},
+    {"code": "ar", "name": "Arabic", "native_name": "العربية"},
+    {"code": "zh-cn", "name": "Chinese (Simplified)", "native_name": "简体中文"},
+    {"code": "ja", "name": "Japanese", "native_name": "日本語"},
+    {"code": "ko", "name": "Korean", "native_name": "한국어"},
+    {"code": "hi", "name": "Hindi", "native_name": "हिन्दी"}
+  ]
+}
+```
+
+## Supported Languages
+
+ElevenLabs supports 30+ languages including:
+
+| Code | Language | Native |
+|------|----------|--------|
+| `en` | English | English |
+| `es` | Spanish | Español |
+| `fr` | French | Français |
+| `de` | German | Deutsch |
+| `it` | Italian | Italiano |
+| `pt` | Portuguese | Português |
+| `pl` | Polish | Polski |
+| `tr` | Turkish | Türkçe |
+| `ru` | Russian | Русский |
+| `nl` | Dutch | Nederlands |
+| `cs` | Czech | Čeština |
+| `ar` | Arabic | العربية |
+| `zh-cn` | Chinese (Simplified) | 简体中文 |
+| `ja` | Japanese | 日本語 |
+| `ko` | Korean | 한국어 |
+| `hi` | Hindi | हिन्दी |
+| `id` | Indonesian | Bahasa Indonesia |
+| `ms` | Malay | Bahasa Melayu |
+| `ta` | Tamil | தமிழ் |
+| `fi` | Finnish | Suomi |
+| `sv` | Swedish | Svenska |
+| `uk` | Ukrainian | Українська |
+
+<Note>
+  Call `/api/translate/languages` for the most up-to-date list with all supported languages.
+</Note>
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| 400 | Missing `X-ElevenLabs-Key` header |
+| 404 | Job ID not found |
+| 404 | Metadata file not found |
+| 404 | Clip index out of range |
+| 404 | Video file not found at specified path |
+| 500 | ElevenLabs API error (quota exceeded, invalid language, etc.) |
+
+## Examples
+
+### Translate to Spanish
+
+```bash
+curl -X POST http://localhost:8000/api/translate \
+  -H "X-ElevenLabs-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "target_language": "es"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/translated_es_video_123_clip_1.mp4"
+}
+```
+
+### Get Supported Languages
+
+```bash
+curl http://localhost:8000/api/translate/languages
+```
+
+### Python SDK Example
+
+```python
+import requests
+
+# Translate to Spanish
+url = "http://localhost:8000/api/translate"
+headers = {"X-ElevenLabs-Key": "YOUR_KEY"}
+payload = {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "target_language": "es",
+    "source_language": "en"  # Optional
+}
+
+response = requests.post(url, headers=headers, json=payload)
+result = response.json()
+
+if result["success"]:
+    print(f"Translated video: {result['new_video_url']}")
+
+# Get language list
+lang_response = requests.get("http://localhost:8000/api/translate/languages")
+languages = lang_response.json()["languages"]
+print(f"Supported languages: {len(languages)}")
+```
+
+### JavaScript/Fetch Example
+
+```javascript
+// Translate video
+const translateVideo = async (jobId, clipIndex, targetLanguage) => {
+  const response = await fetch('http://localhost:8000/api/translate', {
+    method: 'POST',
+    headers: {
+      'X-ElevenLabs-Key': 'YOUR_KEY',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      clip_index: clipIndex,
+      target_language: targetLanguage
+    })
+  });
+  
+  return await response.json();
+};
+
+// Get languages
+const getLanguages = async () => {
+  const response = await fetch('http://localhost:8000/api/translate/languages');
+  const data = await response.json();
+  return data.languages;
+};
+
+// Usage
+const languages = await getLanguages();
+console.log('Available languages:', languages);
+
+const result = await translateVideo(
+  '550e8400-e29b-41d4-a716-446655440000',
+  0,
+  'es'
+);
+console.log('Translated video:', result.new_video_url);
+```
+
+### Translate and Add Subtitles
+
+```python
+import requests
+
+job_id = "550e8400-e29b-41d4-a716-446655440000"
+headers_elevenlabs = {"X-ElevenLabs-Key": "YOUR_KEY"}
+
+# 1. Translate to Spanish
+translate_resp = requests.post(
+    "http://localhost:8000/api/translate",
+    headers=headers_elevenlabs,
+    json={
+        "job_id": job_id,
+        "clip_index": 0,
+        "target_language": "es"
+    }
+)
+translated_file = translate_resp.json()["new_video_url"].split("/")[-1]
+print(f"Translated to Spanish: {translated_file}")
+
+# 2. Add Spanish subtitles (auto-detects dubbed video and re-transcribes)
+subtitle_resp = requests.post(
+    "http://localhost:8000/api/subtitle",
+    json={
+        "job_id": job_id,
+        "clip_index": 0,
+        "input_filename": translated_file,
+        "position": "bottom",
+        "font_size": 16
+    }
+)
+final_file = subtitle_resp.json()["new_video_url"]
+print(f"Spanish video with Spanish subtitles: {final_file}")
+```
+
+## How It Works
+
+1. **Audio Extraction**: FFmpeg extracts audio from the video
+2. **Upload**: Audio file sent to ElevenLabs Dubbing API
+3. **AI Processing**: ElevenLabs analyzes speech, generates dubbed audio in target language
+4. **Polling**: API polls ElevenLabs every 10 seconds for completion
+5. **Download**: Dubbed audio track downloaded
+6. **Merge**: FFmpeg replaces original audio with dubbed audio
+7. **Output**: New video file saved with `translated_{language}_` prefix
+
+## Voice Preservation
+
+ElevenLabs' AI dubbing preserves:
+
+- **Speaker characteristics**: Tone, pitch, and vocal style
+- **Emotion**: Excitement, sarcasm, emphasis
+- **Timing**: Lip-sync alignment where possible
+- **Background audio**: Music and sound effects preserved
+
+## Performance Notes
+
+- **Processing Time**: 2-5 minutes for typical 30-60 second clips
+- **ElevenLabs Queue**: May vary based on API load
+- **Blocking**: This endpoint is synchronous (waits for dubbing to complete)
+- **Costs**: ElevenLabs charges per character/second of dubbed audio
+
+<Warning>
+  Translated videos **replace** the original in the job result's `video_url` field and metadata.json. The original video is preserved on disk.
+</Warning>
+
+## Next Steps
+
+- [Add subtitles](/api/subtitle) in the target language (auto-transcribes dubbed audio)
+- [Post to social media](/api/social) to reach international audiences
+- [Add hooks](/api/hook) in the target language for localized engagement

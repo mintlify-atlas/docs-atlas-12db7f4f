@@ -1,0 +1,214 @@
+---
+title: API Keys
+description: Configure API keys for Gemini AI, ElevenLabs dubbing, and social media posting
+---
+
+OpenShorts uses client-side API key management for security and flexibility. API keys are stored encrypted in your browser's localStorage and never touch the server.
+
+## Required API Keys
+
+### Google Gemini API Key
+
+<ParamField path="GEMINI_API_KEY" type="string" required>
+  **Required for all operations.** Powers viral moment detection, title generation, video effects, and thumbnail creation.
+  
+  **Get your free key:** [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+  
+  **HTTP Header:** `X-Gemini-Key`
+</ParamField>
+
+**Features enabled:**
+- Viral moment detection from transcripts
+- SEO-optimized title and description generation
+- AI video effects with FFmpeg filter generation
+- YouTube thumbnail creation
+- Video context analysis
+
+**Usage limits:**
+- Free tier: 1,500 requests/day
+- Paid tier: Higher quotas available
+
+## Optional API Keys
+
+### ElevenLabs API Key
+
+<ParamField path="ELEVENLABS_API_KEY" type="string">
+  **Optional.** Enables AI voice dubbing and translation to 30+ languages.
+  
+  **Get your key:** [elevenlabs.io](https://elevenlabs.io)
+  
+  **HTTP Header:** `X-ElevenLabs-Key`
+</ParamField>
+
+**Features enabled:**
+- Voice cloning and translation
+- Support for 30+ languages
+- Automatic subtitle regeneration for dubbed videos
+
+**Supported languages include:**
+English, Spanish, French, German, Italian, Portuguese, Polish, Turkish, Russian, Dutch, Swedish, Ukrainian, Arabic, Chinese, Japanese, Korean, Hindi, and more.
+
+### Upload-Post API Key
+
+<ParamField path="UPLOAD_POST_API_KEY" type="string">
+  **Optional.** Enables one-click posting to TikTok, Instagram Reels, and YouTube Shorts.
+  
+  **Get your key:** [app.upload-post.com/api-keys](https://app.upload-post.com/api-keys)
+  
+  **HTTP Header:** `X-Upload-Post-Key`
+</ParamField>
+
+**Features enabled:**
+- Direct upload to TikTok, Instagram, YouTube
+- Multi-platform scheduling
+- Profile management for multiple accounts
+
+**Setup steps:**
+1. Create account at [app.upload-post.com/login](https://app.upload-post.com/login)
+2. Create user profile in [Manage Users](https://app.upload-post.com/manage-users)
+3. Connect social accounts (TikTok, Instagram, YouTube)
+4. Generate API key in [API Keys](https://app.upload-post.com/api-keys)
+5. Paste key in OpenShorts dashboard
+
+**Free tier available** — No credit card required for basic usage.
+
+## How API Keys Work
+
+### Client-Side Encrypted Storage
+
+OpenShorts implements a secure, privacy-first API key management system:
+
+1. **Browser-only storage:** Keys are saved in `localStorage` with encryption
+2. **Never server-side:** The backend never stores or logs your API keys
+3. **Header-based authentication:** Keys are sent via HTTP headers only when needed
+4. **Per-request basis:** Each API call includes only the required key
+
+### HTTP Header Format
+
+API keys are transmitted as custom headers:
+
+```http
+POST /api/process HTTP/1.1
+X-Gemini-Key: your-gemini-api-key-here
+
+POST /api/translate HTTP/1.1
+X-ElevenLabs-Key: your-elevenlabs-key-here
+
+POST /api/social/post HTTP/1.1
+X-Upload-Post-Key: your-upload-post-key-here
+```
+
+### Backend Implementation
+
+The FastAPI backend extracts keys from headers:
+
+```python
+# app.py:302-304
+api_key = request.headers.get("X-Gemini-Key")
+if not api_key:
+    raise HTTPException(status_code=400, detail="Missing X-Gemini-Key header")
+```
+
+Keys are then passed directly to the AI service without storage:
+
+```python
+# app.py:322
+env["GEMINI_API_KEY"] = api_key  # Override with key from request
+```
+
+## Entering API Keys
+
+### Dashboard UI
+
+On first launch, OpenShorts prompts for required keys:
+
+1. **Open dashboard:** `http://localhost:5173`
+2. **Enter Gemini API key** in the initial prompt
+3. **Optional keys:** Click settings icon to add ElevenLabs or Upload-Post keys
+4. **Keys persist** in browser localStorage until cleared
+
+### Key Management
+
+- **View keys:** Click settings/profile icon in dashboard
+- **Update keys:** Enter new value and save
+- **Clear keys:** Use browser's localStorage inspector or clear site data
+- **Per-browser:** Keys are isolated to each browser/device
+
+## Security Best Practices
+
+<Warning>
+  **Never share API keys publicly or commit them to version control.**
+  
+  Keys stored in browser localStorage can be viewed via DevTools console:
+  ```javascript
+  localStorage.getItem('gemini_api_key')
+  ```
+  
+  Only enter keys on trusted devices.
+</Warning>
+
+<Tip>
+  **Rotate keys regularly** for production deployments. Most providers allow generating multiple keys:
+  
+  1. Generate new key in provider dashboard
+  2. Update in OpenShorts settings
+  3. Delete old key from provider
+</Tip>
+
+### API Key Permissions
+
+**Gemini API Key:**
+- Read-only access to your Google Cloud project
+- Cannot modify or delete resources
+- Usage tracked in Google AI Studio
+
+**ElevenLabs API Key:**
+- Access to dubbing and voice cloning features
+- Charged per character processed
+- Monitor usage in ElevenLabs dashboard
+
+**Upload-Post API Key:**
+- Access to connected social accounts
+- Can post videos on your behalf
+- Revoke access in Upload-Post dashboard
+
+## Troubleshooting
+
+### Invalid API Key Error
+
+**Symptom:** `400 Bad Request: Missing X-Gemini-Key header`
+
+**Solutions:**
+1. Verify key is entered in dashboard settings
+2. Check browser console for localStorage errors
+3. Clear browser cache and re-enter key
+4. Generate new key from provider
+
+### API Rate Limit Exceeded
+
+**Symptom:** `429 Too Many Requests`
+
+**Solutions:**
+1. **Gemini:** Wait for rate limit reset (usually 1 minute)
+2. **ElevenLabs:** Upgrade plan or wait for quota refresh
+3. **Upload-Post:** Check daily/monthly limits in dashboard
+
+### Key Not Persisting
+
+**Symptom:** Re-prompted for key on every page load
+
+**Solutions:**
+1. Check browser privacy settings (allow localStorage)
+2. Disable incognito/private mode
+3. Check for browser extensions blocking storage
+4. Try different browser
+
+### Social Posting Fails
+
+**Symptom:** Upload-Post returns `401 Unauthorized`
+
+**Solutions:**
+1. Verify API key is valid
+2. Check social account is still connected
+3. Re-authenticate account in Upload-Post dashboard
+4. Verify user profile ID matches

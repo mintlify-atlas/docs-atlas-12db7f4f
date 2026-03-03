@@ -1,0 +1,220 @@
+---
+title: 'AI Viral Moment Detection'
+description: 'Gemini 2.0 Flash analyzes transcripts to identify viral-ready short clips'
+icon: 'sparkles'
+---
+
+## Overview
+
+OpenShorts uses **Google Gemini 2.5 Flash** to analyze video transcripts and automatically identify 3-15 viral moments optimized for TikTok, Instagram Reels, and YouTube Shorts. The AI considers word-level timestamps, silence patterns, and viral content signals to extract clips between 15-60 seconds.
+
+## How It Works
+
+### 1. Transcription with Faster-Whisper
+
+First, the video is transcribed using `faster-whisper` with word-level timestamps:
+
+```python main.py
+def transcribe_video(video_path):
+    from faster_whisper import WhisperModel
+    
+    # Run on CPU with INT8 quantization for speed
+    model = WhisperModel("base", device="cpu", compute_type="int8")
+    
+    segments, info = model.transcribe(video_path, word_timestamps=True)
+    
+    transcript_segments = []
+    for segment in segments:
+        seg_dict = {
+            'text': segment.text,
+            'start': segment.start,
+            'end': segment.end,
+            'words': [
+                {
+                    'word': word.word,
+                    'start': word.start,
+                    'end': word.end,
+                    'probability': word.probability
+                }
+                for word in segment.words
+            ]
+        }
+        transcript_segments.append(seg_dict)
+        
+    return {
+        'text': full_text.strip(),
+        'segments': transcript_segments,
+        'language': info.language
+    }
+```
+
+### 2. Gemini Analysis with Viral Prompt
+
+The transcript is sent to Gemini with a specialized prompt engineered for viral moment detection:
+
+```python main.py
+GEMINI_PROMPT_TEMPLATE = """
+You are a senior short-form video editor. Read the ENTIRE transcript and word-level timestamps to choose the 3–15 MOST VIRAL moments for TikTok/IG Reels/YouTube Shorts. Each clip must be between 15 and 60 seconds long.
+
+⚠️ FFMPEG TIME CONTRACT — STRICT REQUIREMENTS:
+- Return timestamps in ABSOLUTE SECONDS from the start of the video (usable in: ffmpeg -ss <start> -to <end> -i <input> ...).
+- Only NUMBERS with decimal point, up to 3 decimals (examples: 0, 1.250, 17.350).
+- Ensure 0 ≤ start < end ≤ VIDEO_DURATION_SECONDS.
+- Each clip between 15 and 60 s (inclusive).
+- Prefer starting 0.2–0.4 s BEFORE the hook and ending 0.2–0.4 s AFTER the payoff.
+- Use silence moments for natural cuts; never cut in the middle of a word or phrase.
+
+VIDEO_DURATION_SECONDS: {video_duration}
+
+TRANSCRIPT_TEXT (raw):
+{transcript_text}
+
+WORDS_JSON (array of {{w, s, e}} where s/e are seconds):
+{words_json}
+
+STRICT EXCLUSIONS:
+- No generic intros/outros or purely sponsorship segments unless they contain the hook.
+- No clips < 15 s or > 60 s.
+
+OUTPUT — RETURN ONLY VALID JSON:
+{{
+  "shorts": [
+    {{
+      "start": <number in seconds, e.g., 12.340>,
+      "end": <number in seconds, e.g., 37.900>,
+      "video_description_for_tiktok": "<description for TikTok oriented to get views>",
+      "video_description_for_instagram": "<description for Instagram oriented to get views>",
+      "video_title_for_youtube_short": "<title for YouTube Short oriented to get views 100 chars max>",
+      "viral_hook_text": "<SHORT punchy text overlay (max 10 words). MUST BE IN THE SAME LANGUAGE AS THE VIDEO TRANSCRIPT>"
+    }}
+  ]
+}}
+"""
+```
+
+### 3. JSON Response Structure
+
+Gemini returns a structured response with viral clips and platform-specific metadata:
+
+```json
+{
+  "shorts": [
+    {
+      "start": 12.340,
+      "end": 37.900,
+      "video_description_for_tiktok": "POV: You discovered the AI workflow that changed everything 🤯 #ai #automation",
+      "video_description_for_instagram": "This AI hack will save you 10 hours/week. Comment WORKFLOW and I'll send it! 🔥",
+      "video_title_for_youtube_short": "I Automated My Entire Workflow with AI (10 Hours Saved Per Week)",
+      "viral_hook_text": "THIS CHANGED EVERYTHING"
+    }
+  ],
+  "cost_analysis": {
+    "input_tokens": 1523,
+    "output_tokens": 342,
+    "input_cost": 0.0001523,
+    "output_cost": 0.0001368,
+    "total_cost": 0.0002891,
+    "model": "gemini-2.5-flash"
+  },
+  "transcript": { /* full transcript data */ }
+}
+```
+
+## Clip Duration Logic
+
+The AI strictly enforces **15-60 second** clips:
+
+<CodeGroup>
+```python Clip Validation
+# From GEMINI_PROMPT_TEMPLATE
+clip_duration = end - start
+assert 15 <= clip_duration <= 60, "Clip must be 15-60 seconds"
+```
+
+```python Natural Cuts
+# Gemini is instructed to:
+# - Start 0.2-0.4s BEFORE the hook
+# - End 0.2-0.4s AFTER the payoff  
+# - Use silence moments for natural cuts
+# - Never cut mid-word or mid-phrase
+```
+</CodeGroup>
+
+## Token Usage & Cost Analysis
+
+OpenShorts tracks token usage for transparency:
+
+```python main.py
+try:
+    usage = response.usage_metadata
+    if usage:
+        # Gemini 2.5 Flash Pricing (Dec 2025)
+        input_price_per_million = 0.10   # $0.10 per 1M tokens
+        output_price_per_million = 0.40  # $0.40 per 1M tokens
+        
+        prompt_tokens = usage.prompt_token_count
+        output_tokens = usage.candidates_token_count
+        
+        input_cost = (prompt_tokens / 1_000_000) * input_price_per_million
+        output_cost = (output_tokens / 1_000_000) * output_price_per_million
+        total_cost = input_cost + output_cost
+        
+        print(f"💰 Token Usage ({model_name}):")
+        print(f"   - Input Tokens: {prompt_tokens} (${input_cost:.6f})")
+        print(f"   - Output Tokens: {output_tokens} (${output_cost:.6f})")
+        print(f"   - Total Estimated Cost: ${total_cost:.6f}")
+except Exception as e:
+    print(f"⚠️ Could not calculate cost: {e}")
+```
+
+<Info>
+**Typical costs**: A 10-minute video costs ~$0.0003-0.0010 to analyze with Gemini 2.5 Flash.
+</Info>
+
+## API Integration
+
+The viral detection runs automatically when you submit a video:
+
+```bash cURL Example
+curl -X POST https://your-server.com/api/process \
+  -H "X-Gemini-Key: YOUR_GEMINI_API_KEY" \
+  -F "url=https://youtube.com/watch?v=VIDEO_ID"
+```
+
+Response:
+
+```json
+{
+  "job_id": "a7f3c2d1-...",
+  "status": "queued"
+}
+```
+
+Poll for results:
+
+```bash
+curl https://your-server.com/api/status/a7f3c2d1-...
+```
+
+## Skip Analysis Mode
+
+To convert the entire video without AI analysis:
+
+```bash Terminal
+python main.py -i video.mp4 -o output.mp4 --skip-analysis
+```
+
+<Warning>
+This bypasses viral detection and crops the full video. Use for testing or when you already know which clips you want.
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="AI Cropping" icon="crop" href="/features/ai-cropping">
+    Vertical reframing with subject tracking
+  </Card>
+  <Card title="Voice Dubbing" icon="language" href="/features/voice-dubbing">
+    Translate clips to 30+ languages
+  </Card>
+</CardGroup>

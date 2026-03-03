@@ -1,0 +1,351 @@
+---
+title: "translate.py"
+description: "AI voice dubbing using ElevenLabs API for multi-language support"
+---
+
+## Overview
+
+The `translate.py` module provides AI-powered voice dubbing using the ElevenLabs Dubbing API. It supports 30+ languages with automatic voice cloning and synchronization.
+
+## Key Functions
+
+### translate_video
+
+```python
+def translate_video(
+    video_path: str,
+    output_path: str,
+    target_language: str,
+    api_key: str,
+    source_language: Optional[str] = None,
+    max_wait_seconds: int = 600,
+    poll_interval: int = 5
+) -> str
+```
+
+Translates video audio to target language using ElevenLabs AI dubbing (blocking call).
+
+**Parameters:**
+- `video_path` (str): Path to input video file
+- `output_path` (str): Path to save dubbed video
+- `target_language` (str): Target language code (e.g., `"es"`, `"fr"`, `"de"`)
+- `api_key` (str): ElevenLabs API key
+- `source_language` (str, optional): Source language code (auto-detected if `None`)
+- `max_wait_seconds` (int): Timeout in seconds (default: 600 = 10 minutes)
+- `poll_interval` (int): Status check interval in seconds (default: 5)
+
+**Returns:**
+- `str`: Path to the dubbed video file
+
+**Raises:**
+- `Exception`: If dubbing fails or times out
+
+**Process:**
+1. Creates dubbing project via `create_dubbing_project()`
+2. Polls status every 5 seconds using `get_dubbing_status()`
+3. Downloads result when status is `"dubbed"`
+4. Raises exception if status is `"failed"` or timeout exceeded
+
+**Example:**
+```python
+from translate import translate_video
+
+dubbed_path = translate_video(
+    video_path="clip_en.mp4",
+    output_path="clip_es.mp4",
+    target_language="es",  # Spanish
+    api_key="your-elevenlabs-key"
+)
+print(f"Dubbed video: {dubbed_path}")
+```
+
+### create_dubbing_project
+
+```python
+def create_dubbing_project(
+    video_path: str,
+    target_language: str,
+    api_key: str,
+    source_language: Optional[str] = None
+) -> dict
+```
+
+Creates a new dubbing project with ElevenLabs.
+
+**Parameters:**
+- `video_path` (str): Path to video file
+- `target_language` (str): Target language code
+- `api_key` (str): ElevenLabs API key
+- `source_language` (str, optional): Source language (auto-detected if omitted)
+
+**Returns:**
+- `dict` with keys:
+  - `dubbing_id` (str): Unique project ID for status polling
+  - `expected_duration_sec` (int): Estimated processing time
+
+**API Request:**
+```python
+POST https://api.elevenlabs.io/v1/dubbing
+Headers:
+  xi-api-key: <api_key>
+Form Data:
+  file: <video_file>
+  target_lang: <target_language>
+  mode: "automatic"
+  num_speakers: "0"  # Auto-detect
+  watermark: "false"
+  source_lang: <source_language>  # Optional
+```
+
+**Example Response:**
+```json
+{
+  "dubbing_id": "abc123xyz",
+  "expected_duration_sec": 45
+}
+```
+
+### get_dubbing_status
+
+```python
+def get_dubbing_status(dubbing_id: str, api_key: str) -> dict
+```
+
+Checks the status of a dubbing project.
+
+**Parameters:**
+- `dubbing_id` (str): Project ID from `create_dubbing_project()`
+- `api_key` (str): ElevenLabs API key
+
+**Returns:**
+- `dict` with keys:
+  - `status` (str): `"dubbing"` (in progress), `"dubbed"` (complete), or `"failed"`
+  - `error` (str, optional): Error message if status is `"failed"`
+
+**API Request:**
+```python
+GET https://api.elevenlabs.io/v1/dubbing/{dubbing_id}
+Headers:
+  xi-api-key: <api_key>
+```
+
+**Example Response:**
+```json
+{
+  "status": "dubbed",
+  "dubbing_id": "abc123xyz"
+}
+```
+
+### download_dubbed_video
+
+```python
+def download_dubbed_video(
+    dubbing_id: str,
+    target_language: str,
+    output_path: str,
+    api_key: str
+) -> str
+```
+
+Downloads the dubbed video file.
+
+**Parameters:**
+- `dubbing_id` (str): Project ID
+- `target_language` (str): Target language code
+- `output_path` (str): Path to save dubbed video
+- `api_key` (str): ElevenLabs API key
+
+**Returns:**
+- `str`: Path to downloaded file (same as `output_path`)
+
+**API Request:**
+```python
+GET https://api.elevenlabs.io/v1/dubbing/{dubbing_id}/audio/{target_language}
+Headers:
+  xi-api-key: <api_key>
+```
+
+**Streaming Download:**
+Uses `httpx.stream()` with 8KB chunks for memory efficiency.
+
+### get_supported_languages
+
+```python
+def get_supported_languages() -> dict
+```
+
+Returns dictionary of supported language codes and names.
+
+**Returns:**
+- `dict`: Mapping of language codes to full names
+
+**Example Output:**
+```python
+{
+  "en": "English",
+  "es": "Spanish",
+  "fr": "French",
+  "de": "German",
+  "ja": "Japanese",
+  "ko": "Korean",
+  # ... 30+ languages
+}
+```
+
+## Supported Languages
+
+The `SUPPORTED_LANGUAGES` constant includes 30+ languages:
+
+| Code  | Language   | Code  | Language    | Code  | Language    |
+|-------|------------|-------|-------------|-------|-------------|
+| `en`  | English    | `es`  | Spanish     | `fr`  | French      |
+| `de`  | German     | `it`  | Italian     | `pt`  | Portuguese  |
+| `pl`  | Polish     | `hi`  | Hindi       | `ja`  | Japanese    |
+| `ko`  | Korean     | `zh`  | Chinese     | `ar`  | Arabic      |
+| `ru`  | Russian    | `tr`  | Turkish     | `nl`  | Dutch       |
+| `sv`  | Swedish    | `id`  | Indonesian  | `fil` | Filipino    |
+| `ms`  | Malay      | `vi`  | Vietnamese  | `th`  | Thai        |
+| `uk`  | Ukrainian  | `el`  | Greek       | `cs`  | Czech       |
+| `fi`  | Finnish    | `ro`  | Romanian    | `da`  | Danish      |
+| `bg`  | Bulgarian  | `hr`  | Croatian    | `sk`  | Slovak      |
+| `ta`  | Tamil      |       |             |       |             |
+
+## API Configuration
+
+### Base URL
+```python
+ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1"
+```
+
+### Endpoints
+- **Create Project**: `POST /dubbing`
+- **Get Status**: `GET /dubbing/{dubbing_id}`
+- **Download**: `GET /dubbing/{dubbing_id}/audio/{target_language}`
+
+### Timeouts
+- **Create Project**: 300 seconds (5 minutes)
+- **Get Status**: 30 seconds
+- **Download**: 120 seconds (2 minutes, streaming)
+
+## Example Workflows
+
+### Simple Translation
+
+```python
+from translate import translate_video
+
+# English to Spanish
+translate_video(
+    video_path="original_en.mp4",
+    output_path="dubbed_es.mp4",
+    target_language="es",
+    api_key="sk-..."
+)
+```
+
+### With Source Language
+
+```python
+# French to Japanese (explicit source)
+translate_video(
+    video_path="original_fr.mp4",
+    output_path="dubbed_ja.mp4",
+    target_language="ja",
+    source_language="fr",  # Explicit source
+    api_key="sk-..."
+)
+```
+
+### Batch Translation
+
+```python
+from translate import translate_video, get_supported_languages
+
+target_languages = ["es", "fr", "de", "pt"]
+
+for lang in target_languages:
+    lang_name = get_supported_languages()[lang]
+    print(f"Dubbing to {lang_name}...")
+    
+    translate_video(
+        video_path="original.mp4",
+        output_path=f"dubbed_{lang}.mp4",
+        target_language=lang,
+        api_key="sk-..."
+    )
+```
+
+### Manual Workflow (Non-blocking)
+
+```python
+from translate import create_dubbing_project, get_dubbing_status, download_dubbed_video
+import time
+
+# 1. Create project
+project = create_dubbing_project(
+    video_path="clip.mp4",
+    target_language="ko",
+    api_key="sk-..."
+)
+
+dubbing_id = project["dubbing_id"]
+print(f"Project ID: {dubbing_id}")
+
+# 2. Poll status (custom interval)
+while True:
+    status = get_dubbing_status(dubbing_id, api_key="sk-...")
+    print(f"Status: {status['status']}")
+    
+    if status["status"] == "dubbed":
+        break
+    elif status["status"] == "failed":
+        raise Exception(f"Dubbing failed: {status.get('error')}")
+    
+    time.sleep(10)  # Custom 10s interval
+
+# 3. Download result
+download_dubbed_video(
+    dubbing_id=dubbing_id,
+    target_language="ko",
+    output_path="dubbed_ko.mp4",
+    api_key="sk-..."
+)
+```
+
+## Error Handling
+
+```python
+from translate import translate_video
+
+try:
+    translate_video(
+        video_path="clip.mp4",
+        output_path="dubbed.mp4",
+        target_language="es",
+        api_key="invalid-key"
+    )
+except Exception as e:
+    print(f"Dubbing error: {e}")
+    # Handle:
+    # - Invalid API key
+    # - Timeout exceeded
+    # - Network errors
+    # - Unsupported language
+    # - Processing failures
+```
+
+## Dependencies
+
+- `httpx`: HTTP client with streaming support (timeout: 30-300s)
+- `typing`: Type hints (`Optional`)
+- `time`: Polling delays
+- `os`: File path operations
+
+## Notes
+
+- **Pricing**: ElevenLabs charges per minute of dubbed audio (check their pricing page)
+- **Quality**: Automatic voice cloning attempts to match original speaker characteristics
+- **Sync**: Lip-sync is NOT perfect (audio dubbing only, not visual deepfake)
+- **Watermark**: Set to `false` in this implementation (requires paid plan)
+- **Speakers**: Auto-detects number of speakers (`num_speakers: "0"`)

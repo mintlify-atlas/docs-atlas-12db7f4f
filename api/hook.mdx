@@ -1,0 +1,279 @@
+---
+title: Add Text Hooks
+description: Add attention-grabbing text overlays to boost engagement
+---
+
+## POST /api/hook
+
+Adds a styled text overlay ("hook") to the beginning of a video clip. Hooks are short phrases designed to capture attention in the first 1-3 seconds, such as:
+
+- "Wait for it..."
+- "You won't believe this"
+- "Mind = Blown 🤯"
+- "WATCH TILL THE END"
+
+The text appears with a bold, eye-catching font and fades out after a few seconds.
+
+## Request Body
+
+<ParamField body="job_id" type="string" required>
+  The job ID from `/api/process`
+</ParamField>
+
+<ParamField body="clip_index" type="integer" required>
+  Zero-based index of the clip to add a hook to
+</ParamField>
+
+<ParamField body="text" type="string" required>
+  The hook text to display (keep under 30 characters for readability)
+</ParamField>
+
+<ParamField body="input_filename" type="string">
+  Specific video filename to add hook to (for effect chaining)
+</ParamField>
+
+<ParamField body="position" type="string" default="top">
+  Vertical position: `top`, `center`, or `bottom`
+</ParamField>
+
+<ParamField body="size" type="string" default="M">
+  Text size: `S` (small, 0.8x), `M` (medium, 1.0x), or `L` (large, 1.3x)
+</ParamField>
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "clip_index": 0,
+  "text": "Wait for it...",
+  "position": "top",
+  "size": "M"
+}
+```
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on successful hook addition
+</ResponseField>
+
+<ResponseField name="new_video_url" type="string" required>
+  Relative URL to the video with hook overlay
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/hook_video_123_clip_1.mp4"
+}
+```
+
+## Text Styling
+
+Hooks are rendered with high-visibility styling:
+
+- **Font**: Impact or Arial Black (bold, all-caps)
+- **Color**: White with yellow/orange glow
+- **Outline**: Thick black border (3-5px)
+- **Background**: Semi-transparent dark overlay for contrast
+- **Animation**: Fade-in for first 0.5s, fade-out over last 1s
+- **Duration**: 3 seconds total display time
+
+## Position Examples
+
+### Top (Default)
+```json
+{"position": "top", "text": "WATCH THIS"}
+```
+Text appears in the upper third of the frame.
+
+### Center
+```json
+{"position": "center", "text": "Mind Blown 🤯"}
+```
+Text centered vertically and horizontally.
+
+### Bottom
+```json
+{"position": "bottom", "text": "Wait for it..."}
+```
+Text appears in the lower third.
+
+## Size Examples
+
+| Size | Scale | Use Case |
+|------|-------|----------|
+| `S` | 0.8x | Subtle hooks, secondary text |
+| `M` | 1.0x | Default, balanced visibility |
+| `L` | 1.3x | Maximum impact, short phrases |
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| 404 | Job ID not found |
+| 404 | Metadata file not found |
+| 404 | Clip index out of range |
+| 404 | Video file not found at specified path |
+| 500 | FFmpeg hook rendering failed |
+
+## Examples
+
+### Basic Hook Request
+
+```bash
+curl -X POST http://localhost:8000/api/hook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "text": "You won\'t believe this",
+    "position": "top",
+    "size": "L"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/hook_video_123_clip_1.mp4"
+}
+```
+
+### Python SDK Example
+
+```python
+import requests
+
+url = "http://localhost:8000/api/hook"
+payload = {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "text": "WAIT FOR IT",
+    "position": "top",
+    "size": "L"
+}
+
+response = requests.post(url, json=payload)
+result = response.json()
+
+if result["success"]:
+    print(f"Hook added: {result['new_video_url']}")
+```
+
+### JavaScript/Fetch Example
+
+```javascript
+const addHook = async (jobId, clipIndex, text, options = {}) => {
+  const response = await fetch('http://localhost:8000/api/hook', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      clip_index: clipIndex,
+      text: text,
+      position: options.position || 'top',
+      size: options.size || 'M'
+    })
+  });
+  
+  return await response.json();
+};
+
+// Usage
+const result = await addHook(
+  '550e8400-e29b-41d4-a716-446655440000',
+  0,
+  'Mind = Blown 🤯',
+  { position: 'center', size: 'L' }
+);
+console.log('Hook video:', result.new_video_url);
+```
+
+### Chain Hook with Other Effects
+
+```python
+import requests
+
+job_id = "550e8400-e29b-41d4-a716-446655440000"
+headers = {"X-Gemini-Key": "AIzaSy..."}
+
+# 1. Apply AI effects
+edit_resp = requests.post(
+    "http://localhost:8000/api/edit",
+    headers=headers,
+    json={"job_id": job_id, "clip_index": 0}
+)
+edited_file = edit_resp.json()["new_video_url"].split("/")[-1]
+
+# 2. Add subtitles
+sub_resp = requests.post(
+    "http://localhost:8000/api/subtitle",
+    json={
+        "job_id": job_id,
+        "clip_index": 0,
+        "input_filename": edited_file,
+        "position": "bottom"
+    }
+)
+sub_file = sub_resp.json()["new_video_url"].split("/")[-1]
+
+# 3. Add hook to top (subtitles at bottom)
+hook_resp = requests.post(
+    "http://localhost:8000/api/hook",
+    json={
+        "job_id": job_id,
+        "clip_index": 0,
+        "text": "Wait for the ending",
+        "input_filename": sub_file,
+        "position": "top",
+        "size": "L"
+    }
+)
+final_file = hook_resp.json()["new_video_url"]
+print(f"Final video with effects + subs + hook: {final_file}")
+```
+
+## Hook Text Best Practices
+
+### High-Performing Hooks
+
+✅ **Curiosity Gap**: "What happens next will shock you"
+✅ **Urgency**: "DON'T SCROLL YET"
+✅ **Emotion**: "This made me cry 😭"
+✅ **Question**: "Can you guess what this is?"
+✅ **Challenge**: "99% will fail this"
+
+### Avoid
+
+❌ **Too Long**: "This is an incredibly interesting video about..." (30+ chars)
+❌ **Generic**: "Check this out" (overused)
+❌ **Misleading**: Clickbait that doesn't match content
+
+## Performance Notes
+
+- **Processing Time**: 10-20 seconds for typical 30-second clips
+- **CPU Usage**: Moderate (OpenCV text rendering + FFmpeg)
+- **Blocking**: This endpoint is synchronous (waits for completion)
+
+<Warning>
+  Hook videos **replace** the original in the job result's `video_url` field and metadata.json. The original video is preserved on disk with its original filename.
+</Warning>
+
+## Technical Implementation
+
+Hooks are rendered using OpenCV's `cv2.putText()` with custom styling:
+
+1. Load video with `cv2.VideoCapture`
+2. Calculate text size and position based on frame dimensions
+3. Render text frame-by-frame for first 3 seconds with fade animation
+4. Write output with `cv2.VideoWriter`
+5. Copy audio stream from original video
+
+## Next Steps
+
+- [Translate videos](/api/translate) to reach global audiences
+- [Post to social media](/api/social) with optimized hooks
+- [Apply AI effects](/api/edit) before adding hooks for creative combinations

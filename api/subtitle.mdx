@@ -1,0 +1,267 @@
+---
+title: Add Subtitles
+description: Generate and burn subtitles with custom styling and positioning
+---
+
+## POST /api/subtitle
+
+Generates word-level subtitles from the video's transcript and burns them into the video using FFmpeg. For dubbed videos, it automatically transcribes the new audio track for accurate subtitle timing.
+
+<Note>
+  Subtitles are generated from the original Whisper transcript with word-level timestamps. Dubbed videos are automatically re-transcribed to match the new audio.
+</Note>
+
+## Request Body
+
+<ParamField body="job_id" type="string" required>
+  The job ID from `/api/process`
+</ParamField>
+
+<ParamField body="clip_index" type="integer" required>
+  Zero-based index of the clip to subtitle
+</ParamField>
+
+<ParamField body="position" type="string" default="bottom">
+  Subtitle vertical alignment: `top`, `middle`, or `bottom`
+</ParamField>
+
+<ParamField body="font_size" type="integer" default="16">
+  Font size in points (recommended: 14-20 for 1080x1920)
+</ParamField>
+
+<ParamField body="input_filename" type="string">
+  Specific video filename to subtitle (for effect chaining)
+</ParamField>
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "clip_index": 0,
+  "position": "bottom",
+  "font_size": 16,
+  "input_filename": "edited_video_123_clip_1.mp4"  // Optional
+}
+```
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on successful subtitle generation
+</ResponseField>
+
+<ResponseField name="new_video_url" type="string" required>
+  Relative URL to the subtitled video file
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/subtitled_video_123_clip_1.mp4"
+}
+```
+
+## Subtitle Styling
+
+Subtitles are rendered with the following style:
+
+- **Font**: Montserrat Bold (fallback: Arial Bold)
+- **Color**: White (#FFFFFF)
+- **Outline**: Black 2px border for readability
+- **Shadow**: Subtle drop shadow
+- **Alignment**: Configurable (top, middle, bottom)
+- **Max Width**: 90% of video width
+- **Word Timing**: Precise word-level synchronization
+
+## Position Examples
+
+### Bottom (Default)
+```json
+{"position": "bottom"}
+```
+Subtitles appear in the lower third, ideal for TikTok/Instagram Reels.
+
+### Top
+```json
+{"position": "top"}
+```
+Subtitles appear in the upper third, useful when bottom contains important visuals.
+
+### Middle
+```json
+{"position": "middle"}
+```
+Subtitles centered vertically, useful for minimal interference.
+
+## Dubbed Video Detection
+
+The API automatically detects dubbed videos (filename starts with `translated_`) and re-transcribes the audio using Whisper to ensure subtitles match the new language audio track.
+
+```bash
+# 1. Translate video to Spanish
+curl -X POST http://localhost:8000/api/translate \
+  -H "X-ElevenLabs-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "abc-123",
+    "clip_index": 0,
+    "target_language": "es"
+  }'
+# Returns: {"new_video_url": "/videos/abc-123/translated_es_clip_1.mp4"}
+
+# 2. Add Spanish subtitles (auto-detects dubbing)
+curl -X POST http://localhost:8000/api/subtitle \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "abc-123",
+    "clip_index": 0,
+    "input_filename": "translated_es_clip_1.mp4",
+    "position": "bottom"
+  }'
+# Automatically transcribes Spanish audio for accurate subtitles
+```
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| 404 | Job ID not found |
+| 404 | Metadata file not found (job may have expired) |
+| 400 | Transcript not found in metadata (old job or processing error) |
+| 404 | Clip index out of range |
+| 404 | Video file not found at specified path |
+| 400 | No words found for this clip's time range |
+| 500 | SRT generation or FFmpeg burning failed |
+
+## Examples
+
+### Basic Subtitle Request
+
+```bash
+curl -X POST http://localhost:8000/api/subtitle \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "position": "bottom",
+    "font_size": 18
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/subtitled_video_123_clip_1.mp4"
+}
+```
+
+### Python SDK Example
+
+```python
+import requests
+
+url = "http://localhost:8000/api/subtitle"
+payload = {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "position": "bottom",
+    "font_size": 16
+}
+
+response = requests.post(url, json=payload)
+result = response.json()
+
+if result["success"]:
+    print(f"Subtitled video: {result['new_video_url']}")
+```
+
+### JavaScript/Fetch Example
+
+```javascript
+const addSubtitles = async (jobId, clipIndex, options = {}) => {
+  const response = await fetch('http://localhost:8000/api/subtitle', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      clip_index: clipIndex,
+      position: options.position || 'bottom',
+      font_size: options.fontSize || 16
+    })
+  });
+  
+  return await response.json();
+};
+
+// Usage
+const result = await addSubtitles('550e8400-e29b-41d4-a716-446655440000', 0, {
+  position: 'top',
+  fontSize: 18
+});
+console.log('Subtitled video:', result.new_video_url);
+```
+
+### Subtitle Multiple Clips
+
+```python
+import requests
+
+job_id = "550e8400-e29b-41d4-a716-446655440000"
+
+# Get job result to find how many clips
+status = requests.get(f"http://localhost:8000/api/status/{job_id}").json()
+num_clips = len(status["result"]["clips"])
+
+# Add subtitles to all clips
+for i in range(num_clips):
+    response = requests.post(
+        "http://localhost:8000/api/subtitle",
+        json={
+            "job_id": job_id,
+            "clip_index": i,
+            "position": "bottom",
+            "font_size": 16
+        }
+    )
+    result = response.json()
+    print(f"Clip {i+1} subtitled: {result['new_video_url']}")
+```
+
+## SRT File Format
+
+Subtitles are generated as SRT files (SubRip format) before burning:
+
+```srt
+1
+00:00:00,000 --> 00:00:01,200
+This is the first subtitle
+
+2
+00:00:01,200 --> 00:00:03,500
+with word-level timing
+
+3
+00:00:03,500 --> 00:00:05,800
+for perfect synchronization
+```
+
+The SRT file is saved in the job's output directory as `subs_{clip_index}_{timestamp}.srt`.
+
+## Performance Notes
+
+- **Processing Time**: 10-30 seconds for typical 30-second clips
+- **Whisper Re-transcription**: Adds 20-40 seconds for dubbed videos
+- **Blocking**: This endpoint is synchronous (waits for completion)
+
+<Warning>
+  Subtitled videos **replace** the original in the job result's `video_url` field and metadata.json. The original unsub titled video is preserved on disk.
+</Warning>
+
+## Next Steps
+
+- [Add text hooks](/api/hook) for viral engagement
+- [Translate videos](/api/translate) to other languages (auto-subtitles supported)
+- [Apply AI effects](/api/edit) before subtitling for creative looks
+- [Post to social media](/api/social) with subtitled videos

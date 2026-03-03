@@ -1,0 +1,506 @@
+---
+title: Editing Clips
+description: Post-processing customization with AI effects, subtitles, and hooks
+---
+
+## Overview
+
+After clips are generated, OpenShorts provides powerful editing tools to enhance them:
+
+- **AI Video Effects**: Dynamic zooms, color grading, and visual enhancements
+- **Subtitles**: Word-level captions with custom positioning and styling
+- **Hook Overlays**: Viral text overlays with professional typography
+
+All editing operations support **chaining** - apply multiple effects sequentially by using the output of one edit as input for the next.
+
+## AI Video Effects
+
+The `/api/edit` endpoint uses Gemini to analyze your video and generate contextual FFmpeg filters.
+
+### How It Works
+
+<Steps>
+  <Step title="Upload to Gemini">
+    Video is uploaded to the Gemini File API for analysis
+  </Step>
+  
+  <Step title="AI Analysis">
+    Gemini watches the video and reads the transcript to understand context, mood, and pacing
+  </Step>
+  
+  <Step title="Filter Generation">
+    AI creates a custom FFmpeg filter string with:
+    - Dynamic zooms on key moments
+    - Color grading for mood changes
+    - Sharpness and saturation adjustments
+    - Timeline-based effects synchronized to speech
+  </Step>
+  
+  <Step title="Apply Effects">
+    FFmpeg applies the filter chain while preserving exact resolution and audio
+  </Step>
+</Steps>
+
+### API Usage
+
+```python
+# app.py:384-505
+@app.post("/api/edit")
+async def edit_clip(req: EditRequest, x_gemini_key: Optional[str]):
+    # Supports edit chaining via input_filename parameter
+    if req.input_filename:
+        input_path = os.path.join(OUTPUT_DIR, req.job_id, req.input_filename)
+    else:
+        # Use original clip
+        clip = job['result']['clips'][req.clip_index]
+        filename = clip['video_url'].split('/')[-1]
+        input_path = os.path.join(OUTPUT_DIR, req.job_id, filename)
+```
+
+<CodeGroup>
+```bash cURL Example
+curl -X POST http://localhost:8000/api/edit \
+  -H "Content-Type: application/json" \
+  -H "X-Gemini-Key: YOUR_API_KEY" \
+  -d '{
+    "job_id": "abc-123",
+    "clip_index": 0
+  }'
+```
+
+```json Request Body
+{
+  "job_id": "abc-123",
+  "clip_index": 0,
+  "api_key": "optional-gemini-key",
+  "input_filename": "edited_clip_1.mp4"  // For chaining edits
+}
+```
+
+```json Response
+{
+  "success": true,
+  "new_video_url": "/videos/abc-123/edited_clip_1.mp4",
+  "edit_plan": {
+    "filter_string": "zoompan=z='1.1*between(on,0,75)+1.3*between(on,76,150)',eq=contrast=1.2:enable='between(t,0,3)'"
+  }
+}
+```
+</CodeGroup>
+
+### Filter Generation Details
+
+```python
+# editor.py:40-112
+def get_ffmpeg_filter(self, video_file_obj, duration, fps=30, width=None, height=None, transcript=None):
+    prompt = f"""
+    You are an expert FFmpeg video editor. Your task is to generate a complex 
+    video filter string to make a short video viral, BUT ONLY apply effects 
+    where they make sense contextually.
+    
+    Video Duration: {duration} seconds
+    Video FPS: {fps}
+    Video Resolution (MUST KEEP EXACT): {width}x{height}
+    
+    TRANSCRIPT (Context of what is being said):
+    {transcript_text}
+    
+    Goal: Enhance the video with dynamic zooms, cuts, and visual effects to 
+    increase retention, but DO NOT overdo it.
+    
+    Instructions:
+    1. ANALYZE THE VIDEO AND TRANSCRIPT
+    2. APPLY EFFECTS ONLY WHEN RELEVANT:
+       - Use "punch-in" zooms (zoompan) to emphasize key points
+       - slow zooms to face when speaker is speaking
+       - Use visual effects (contrast, saturation) for mood changes
+       - If nothing significant is happening, keep it simple
+    3. Use filters like zoompan, eq, hue, unsharp
+    4. Align effects with speech rhythm from transcript
+    """
+```
+
+### Supported Effects
+
+<Tabs>
+  <Tab title="Zoompan">
+    Dynamic camera movements synchronized to content:
+
+    ```python
+    # editor.py:82-87
+    # Uses frame index (on) instead of time for precision
+    zoompan=z='1.1*between(on,0,75)+1.3*between(on,76,150)+1.15*between(on,151,300)'
+    # Convert seconds to frames: frame = seconds * fps
+    
+    # Always preserves output size
+    :s=1080x1920:fps=30:d=1
+    ```
+
+    **Features:**
+    - `between(on, start, end)` for segmented zoom levels
+    - Automatic output size enforcement to preserve aspect ratio
+    - Frame-based timing to avoid drift
+  </Tab>
+
+  <Tab title="Color Grading">
+    Timeline-based color effects:
+
+    ```python
+    # editor.py:89-99
+    # Multiple filter instances with enable ranges
+    eq=contrast=1.2:enable='between(t,0,3)',
+    eq=saturation=1.5:enable='between(t,5,8)',
+    hue=s=0:enable='between(t,10,12)'  // Black & white effect
+    ```
+
+    **Available Filters:**
+    - `eq`: Contrast, brightness, saturation
+    - `hue`: Saturation, hue rotation
+    - `curves`: Advanced color curves
+  </Tab>
+
+  <Tab title="Sharpness">
+    Detail enhancement:
+
+    ```python
+    unsharp=5:5:1.0:5:5:0.0:enable='between(t,15,20)'
+    # Parameters: luma_matrix:luma_amount:chroma_matrix:chroma_amount
+    ```
+  </Tab>
+</Tabs>
+
+### Filter Sanitization
+
+The system automatically fixes common AI generation issues:
+
+```python
+# editor.py:183-202
+def _sanitize_filter_string(filter_string: str) -> str:
+    # Converts comparison operators to FFmpeg functions
+    # t<3 -> lt(t,3)
+    # on>=75 -> gte(on,75)
+    # t<=10 -> lte(t,10)
+    
+    patterns = [
+        (r"([A-Za-z_]\w*)\s*>=\s*(-?\d+(?:\.\d+)?)", r"gte(\1,\2)"),
+        (r"([A-Za-z_]\w*)\s*<=\s*(-?\d+(?:\.\d+)?)", r"lte(\1,\2)"),
+        (r"([A-Za-z_]\w*)\s*>\s*(-?\d+(?:\.\d+)?)", r"gt(\1,\2)"),
+        (r"([A-Za-z_]\w*)\s*<\s*(-?\d+(?:\.\d+)?)", r"lt(\1,\2)"),
+    ]
+```
+
+<Warning>
+**Important:** Always preserve exact input resolution. The system enforces this automatically by injecting `s=WIDTHxHEIGHT` into zoompan filters and adding `setsar=1` for square pixels.
+</Warning>
+
+## Subtitles
+
+Generate and burn word-level subtitles with custom styling.
+
+### Generate Subtitles
+
+```python
+# app.py:514-621
+@app.post("/api/subtitle")
+async def add_subtitles(req: SubtitleRequest):
+    # Generates SRT from transcript
+    # Burns subtitles into video with custom style
+```
+
+<CodeGroup>
+```bash API Request
+curl -X POST http://localhost:8000/api/subtitle \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "abc-123",
+    "clip_index": 0,
+    "position": "bottom",
+    "font_size": 24,
+    "input_filename": "edited_clip_1.mp4"
+  }'
+```
+
+```json Request Parameters
+{
+  "job_id": "abc-123",
+  "clip_index": 0,
+  "position": "bottom",     // "top", "middle", "bottom"
+  "font_size": 24,           // Pixels (auto-scaled)
+  "input_filename": "..."    // Optional: for chaining
+}
+```
+</CodeGroup>
+
+### SRT Generation
+
+```python
+# subtitles.py:62-124
+def generate_srt(transcript, clip_start, clip_end, output_path, max_chars=20, max_duration=2.0):
+    # Extract words within time range
+    for segment in transcript.get('segments', []):
+        for word_info in segment.get('words', []):
+            if word_info['end'] > clip_start and word_info['start'] < clip_end:
+                words.append(word_info)
+    
+    # Group words into short blocks
+    current_block = []
+    for word in words:
+        current_text_len = sum(len(w['word']) + 1 for w in current_block)
+        duration = end - block_start
+        
+        # Close block if too long or too much time
+        if current_text_len + len(word['word']) > max_chars or duration > max_duration:
+            # Finalize current block
+            text = " ".join([w['word'] for w in current_block]).strip()
+            srt_content += format_srt_block(index, block_start, block_end, text)
+```
+
+**Word Grouping Logic:**
+- Max characters per line: 20 (configurable)
+- Max duration per subtitle: 2.0 seconds
+- Natural breaks at word boundaries
+- Timestamps relative to clip start
+
+### Dubbed Video Subtitles
+
+For translated videos, subtitles are transcribed fresh:
+
+```python
+# subtitles.py:44-59
+def generate_srt_from_video(video_path, output_path, max_chars=20, max_duration=2.0):
+    # Uses faster-whisper to transcribe dubbed audio
+    transcript = transcribe_audio(video_path)
+    
+    # Get video duration
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = frame_count / fps if fps else 0
+    cap.release()
+    
+    return generate_srt(transcript, 0, duration, output_path, max_chars, max_duration)
+```
+
+### Subtitle Styling
+
+```python
+# subtitles.py:136-212
+def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16):
+    # ASS alignment (numpad layout)
+    # 2 = Bottom Center, 6 = Top Center, 10 = Middle Center
+    
+    # Font scaling: 0.5x input for balanced size
+    final_fontsize = int(fontsize * 0.5)
+    
+    # Style with opaque background box
+    style_string = f"""Alignment={ass_alignment},
+        Fontname=Verdana,
+        Fontsize={final_fontsize},
+        PrimaryColour=&H00FFFFFF,      # White text
+        OutlineColour=&H60000000,      # 40% opacity black box
+        BackColour=&H00000000,
+        BorderStyle=3,                  # Opaque box
+        Outline=1,
+        Shadow=0,
+        MarginV=25,                     # 25px margin from edge
+        Bold=1
+    """
+```
+
+<Note>
+**Position Mapping:**
+- `bottom` → Alignment 2 (safe for most content)
+- `middle` → Alignment 10 (use sparingly)
+- `top` → Alignment 6 (best for hook text below)
+</Note>
+
+## Hook Overlays
+
+Add viral text hooks with professional styling.
+
+### API Usage
+
+```python
+# app.py:631-704
+@app.post("/api/hook")
+async def add_hook(req: HookRequest):
+    # Creates PNG overlay with custom text
+    # Composites onto video with FFmpeg
+```
+
+<CodeGroup>
+```bash Request Example
+curl -X POST http://localhost:8000/api/hook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "abc-123",
+    "clip_index": 0,
+    "text": "Wait for the plot twist...",
+    "position": "top",
+    "size": "M"
+  }'
+```
+
+```json Parameters
+{
+  "job_id": "abc-123",
+  "clip_index": 0,
+  "text": "Your hook text",
+  "input_filename": "...",   // Optional: for chaining
+  "position": "top",          // "top", "center", "bottom"
+  "size": "M"                 // "S", "M", "L"
+}
+```
+</CodeGroup>
+
+### Hook Generation
+
+```python
+# hooks.py:29-169
+def create_hook_image(text, target_width, output_image_path, font_scale=1.0):
+    # Configuration
+    padding_x = 30
+    padding_y = 25
+    line_spacing = 20
+    cornerradius = 20
+    shadow_offset = (5, 5)
+    shadow_blur = 10
+    
+    # Font size: 5% of video width (scaled by size parameter)
+    base_font_size = int(target_width * 0.05)
+    font_size = int(base_font_size * font_scale)
+    
+    # Uses Noto Serif Bold (downloaded automatically)
+    font = ImageFont.truetype(FONT_PATH, font_size)
+```
+
+**Size Mapping:**
+```python
+# app.py:670-671
+size_map = {"S": 0.8, "M": 1.0, "L": 1.3}
+font_scale = size_map.get(req.size, 1.0)
+```
+
+### Text Wrapping
+
+Pixel-based wrapping for precise layout:
+
+```python
+# hooks.py:54-91
+max_text_width = target_width - (2 * padding_x)
+
+for word in words:
+    test_line = ' '.join(current_line + [word])
+    bbox = draw.textbbox((0, 0), test_line, font=font)
+    w = bbox[2] - bbox[0]
+    
+    if w <= max_text_width:
+        current_line.append(word)
+    else:
+        lines.append(' '.join(current_line))
+        current_line = [word]
+```
+
+### Positioning
+
+```python
+# hooks.py:203-213
+if position == "center":
+    overlay_y = (video_height - box_h) // 2
+elif position == "bottom":
+    overlay_y = int(video_height * 0.70)  # 70% down
+else:
+    overlay_y = int(video_height * 0.20)  # 20% from top
+
+# Always centered horizontally
+overlay_x = (video_width - box_w) // 2
+```
+
+## Chaining Edits
+
+Apply multiple effects sequentially using `input_filename`:
+
+<Steps>
+  <Step title="Apply AI Effects">
+    ```json
+    POST /api/edit
+    {
+      "job_id": "abc-123",
+      "clip_index": 0
+    }
+    // Returns: {"new_video_url": "/videos/abc-123/edited_clip_1.mp4"}
+    ```
+  </Step>
+  
+  <Step title="Add Subtitles">
+    ```json
+    POST /api/subtitle
+    {
+      "job_id": "abc-123",
+      "clip_index": 0,
+      "input_filename": "edited_clip_1.mp4",  // Chain from step 1
+      "position": "bottom",
+      "font_size": 24
+    }
+    // Returns: {"new_video_url": "/videos/abc-123/subtitled_edited_clip_1.mp4"}
+    ```
+  </Step>
+  
+  <Step title="Add Hook">
+    ```json
+    POST /api/hook
+    {
+      "job_id": "abc-123",
+      "clip_index": 0,
+      "input_filename": "subtitled_edited_clip_1.mp4",  // Chain from step 2
+      "text": "Watch what happens next...",
+      "position": "top",
+      "size": "L"
+    }
+    // Returns: {"new_video_url": "/videos/abc-123/hook_subtitled_edited_clip_1.mp4"}
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+**Important:** Always use the `new_video_url` from the previous response as the `input_filename` for the next edit. Extract just the filename:
+
+```javascript
+const filename = newVideoUrl.split('/').pop();
+```
+</Warning>
+
+## Frontend Integration
+
+The dashboard automatically handles edit chaining:
+
+```javascript
+// Example from dashboard/src/components/VideoCard.jsx
+const currentFilename = clip.video_url.split('/').pop();
+
+await fetch('/api/subtitle', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    job_id: jobId,
+    clip_index: clipIndex,
+    input_filename: currentFilename,  // Uses latest version
+    position: 'bottom',
+    font_size: 24
+  })
+});
+```
+
+## Best Practices
+
+1. **Edit Order**: Apply effects → subtitles → hooks for best results
+2. **Test Settings**: Try different positions and sizes before finalizing
+3. **Monitor Logs**: Check the API response for filter strings and errors
+4. **Preserve Quality**: Each edit re-encodes with CRF 22-23 (high quality)
+5. **Chain Wisely**: Too many edits can degrade quality - keep to 3-4 max
+
+## Next Steps
+
+- [Customize cropping and fonts](/guides/customization)
+- [Translate to other languages](/guides/editing-clips#translation)
+- [Publish to social media](/guides/social-integration)

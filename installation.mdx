@@ -1,0 +1,469 @@
+---
+title: Installation
+description: Detailed installation guide for OpenShorts with Docker and environment configuration
+---
+
+# Installation Guide
+
+This guide covers the complete installation process for OpenShorts, including environment configuration, optional integrations, and troubleshooting.
+
+## System Requirements
+
+### Required
+
+- **Docker** (version 20.10+)
+- **Docker Compose** (version 2.0+)
+- **4GB RAM minimum** (8GB+ recommended for concurrent processing)
+- **10GB free disk space** (more for processing large videos)
+
+### Recommended
+
+- **GPU support** (optional, for faster YOLOv8 processing)
+- **SSD storage** (for faster video I/O)
+- **Multi-core CPU** (for parallel clip processing)
+
+<Note>
+  OpenShorts runs entirely CPU-optimized by default. GPU acceleration is optional and provides marginal performance improvements.
+</Note>
+
+## Docker Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/mutonby/openshorts.git
+    cd OpenShorts
+    ```
+  </Step>
+
+  <Step title="Review Docker Compose Configuration">
+    The `docker-compose.yml` defines two services:
+
+    ```yaml docker-compose.yml
+    services:
+      backend:
+        build: .
+        container_name: openshorts-backend
+        ports:
+          - "8000:8000"
+        volumes:
+          - .:/app
+          - /app/__pycache__
+        restart: unless-stopped
+
+      frontend:
+        build: ./dashboard
+        container_name: openshorts-frontend
+        ports:
+          - "5175:5173"
+        volumes:
+          - ./dashboard:/app
+          - /app/node_modules
+        restart: unless-stopped
+        depends_on:
+          - backend
+    ```
+
+    **Backend** (Python FastAPI):
+    - Runs on port `8000`
+    - Handles video processing, AI analysis, and API endpoints
+    - Auto-restarts on failure
+
+    **Frontend** (React + Vite):
+    - Runs on port `5173` (mapped to `5175` externally)
+    - Provides the web dashboard interface
+    - Depends on backend service
+  </Step>
+
+  <Step title="Build and Start Services">
+    ```bash
+    docker compose up --build
+    ```
+
+    <Info>
+      First build downloads AI models (Faster-Whisper, YOLOv8, MediaPipe) and may take 3-5 minutes. Subsequent starts are instant.
+    </Info>
+
+    For detached mode (runs in background):
+    ```bash
+    docker compose up --build -d
+    ```
+
+    View logs:
+    ```bash
+    docker compose logs -f
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    Check that both services are running:
+
+    ```bash
+    docker compose ps
+    ```
+
+    You should see:
+    ```
+    NAME                     STATUS
+    openshorts-backend       Up
+    openshorts-frontend      Up
+    ```
+
+    Test the API:
+    ```bash
+    curl http://localhost:8000/health
+    ```
+
+    Access the dashboard:
+    ```
+    http://localhost:5173
+    ```
+  </Step>
+</Steps>
+
+## Environment Configuration
+
+### Required API Keys
+
+<AccordionGroup>
+  <Accordion title="Google Gemini API Key (Required)">
+    OpenShorts requires a Gemini API key for viral moment detection and title generation.
+
+    **Get your free API key:**
+    1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+    2. Sign in with your Google account
+    3. Click "Create API Key"
+    4. Copy the key
+
+    **Configuration:**
+    - The key is entered via the dashboard on first launch
+    - Stored encrypted in browser local storage
+    - Never stored server-side
+    - Sent only to Google Gemini API via headers
+
+    <Warning>
+      The free tier has rate limits. For production use, consider upgrading to a paid Gemini plan.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Upload-Post API Key (Optional)">
+    Required for direct social media posting to TikTok, Instagram, and YouTube.
+
+    **Setup:**
+    <Steps>
+      <Step title="Create Account">
+        Sign up at [app.upload-post.com/login](https://app.upload-post.com/login)
+        
+        <Info>Free tier available with no credit card required</Info>
+      </Step>
+      <Step title="Create Profile">
+        Go to [Manage Users](https://app.upload-post.com/manage-users) and create a user profile
+      </Step>
+      <Step title="Connect Social Accounts">
+        In the same section, connect your TikTok, Instagram, or YouTube accounts to the profile
+      </Step>
+      <Step title="Generate API Key">
+        Navigate to [API Keys](https://app.upload-post.com/api-keys) and generate your key
+      </Step>
+      <Step title="Add to OpenShorts">
+        Paste the API key in the OpenShorts dashboard settings and select your profile
+      </Step>
+    </Steps>
+  </Accordion>
+
+  <Accordion title="ElevenLabs API Key (Optional)">
+    Required for AI voice dubbing to 30+ languages with voice cloning.
+
+    **Setup:**
+    1. Sign up at [elevenlabs.io](https://elevenlabs.io)
+    2. Navigate to your dashboard
+    3. Copy your API key
+    4. Enter it in OpenShorts dashboard settings
+
+    **Features:**
+    - Translate clips to 30+ languages
+    - Voice cloning preserves speaker characteristics
+    - Auto-generates subtitles in dubbed language
+    - Supports multiple voices per project
+  </Accordion>
+</AccordionGroup>
+
+### AWS S3 setup (optional)
+
+Enable automatic backup of generated clips to AWS S3:
+
+<Steps>
+  <Step title="Create S3 Bucket">
+    ```bash AWS CLI
+    aws s3 mb s3://your-bucket-name --region us-east-1
+    ```
+
+    Or use the AWS Console to create a bucket.
+  </Step>
+
+  <Step title="Create IAM User with S3 Access">
+    Create an IAM user with the following policy:
+
+    ```json IAM Policy
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "s3:PutObject",
+            "s3:GetObject",
+            "s3:ListBucket"
+          ],
+          "Resource": [
+            "arn:aws:s3:::your-bucket-name/*",
+            "arn:aws:s3:::your-bucket-name"
+          ]
+        }
+      ]
+    }
+    ```
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Create a `.env` file in the project root:
+
+    ```bash .env
+    # AWS S3 Configuration
+    AWS_ACCESS_KEY_ID=your_aws_access_key_here
+    AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
+    AWS_REGION=us-east-1
+    AWS_S3_BUCKET=your-bucket-name
+    ```
+
+    <Warning>
+      Never commit the `.env` file to version control. It contains sensitive credentials.
+    </Warning>
+  </Step>
+
+  <Step title="Restart Services">
+    ```bash
+    docker compose down
+    docker compose up --build
+    ```
+
+    S3 uploads now happen automatically in the background after clip generation.
+  </Step>
+</Steps>
+
+### Advanced Configuration
+
+#### Concurrent Job Limit
+
+Control how many videos can be processed simultaneously:
+
+```bash .env
+MAX_CONCURRENT_JOBS=5
+```
+
+- **Default**: 5 concurrent jobs
+- **Low-end systems**: Set to 1-2
+- **High-end servers**: Set to 10+
+
+<Info>
+  Each concurrent job uses approximately 1-2GB RAM. Adjust based on your system's available memory.
+</Info>
+
+#### YouTube Cookie Authentication
+
+Bypass bot detection for YouTube downloads:
+
+```bash .env
+# Export cookies from your browser in Netscape format
+YOUTUBE_COOKIES=# Netscape HTTP Cookie File...
+```
+
+Use a browser extension like "Get cookies.txt" to export cookies from youtube.com.
+
+#### Production API URL
+
+Override the frontend API URL for production deployments:
+
+```bash .env
+VITE_API_URL=https://api.yourdomain.com
+```
+
+## Development Setup
+
+For local development without Docker:
+
+<Tabs>
+  <Tab title="Backend">
+    ```bash
+    # Install Python dependencies
+    pip install -r requirements.txt
+
+    # Start FastAPI server
+    uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+    ```
+
+    Backend runs on `http://localhost:8000`
+  </Tab>
+
+  <Tab title="Frontend">
+    ```bash
+    # Navigate to dashboard
+    cd dashboard
+
+    # Install Node dependencies
+    npm install
+
+    # Start dev server with hot reload
+    npm run dev
+    ```
+
+    Frontend runs on `http://localhost:5173`
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Port Already in Use">
+    **Error**: `Bind for 0.0.0.0:8000 failed: port is already allocated`
+
+    **Solution**:
+    ```bash
+    # Find and kill the process using the port
+    lsof -ti:8000 | xargs kill -9
+
+    # Or change the port in docker-compose.yml
+    ports:
+      - "8001:8000"  # Use port 8001 instead
+    ```
+  </Accordion>
+
+  <Accordion title="Out of Memory During Processing">
+    **Symptoms**: Container crashes, "Killed" messages in logs
+
+    **Solutions**:
+    1. Reduce concurrent jobs:
+       ```bash .env
+       MAX_CONCURRENT_JOBS=1
+       ```
+
+    2. Increase Docker memory limit:
+       ```bash
+       docker compose down
+       # Edit Docker Desktop settings > Resources > Memory
+       # Increase to 6GB+
+       docker compose up --build
+       ```
+
+    3. Process shorter videos or reduce clip count
+  </Accordion>
+
+  <Accordion title="Gemini API Rate Limit Exceeded">
+    **Error**: `429 Too Many Requests` from Gemini API
+
+    **Solutions**:
+    - Wait 60 seconds between requests (free tier limit)
+    - Upgrade to a paid Gemini API plan
+    - Reduce the number of clips requested per video
+  </Accordion>
+
+  <Accordion title="YouTube Download Failed">
+    **Error**: `ERROR: unable to download video data`
+
+    **Solutions**:
+    1. Try a different video URL
+    2. Add YouTube cookies to `.env`:
+       ```bash
+       YOUTUBE_COOKIES=# Netscape HTTP Cookie File...
+       ```
+    3. Update yt-dlp:
+       ```bash
+       docker compose down
+       docker compose build --no-cache backend
+       docker compose up
+       ```
+  </Accordion>
+
+  <Accordion title="Frontend Can't Connect to Backend">
+    **Error**: `Network Error` or `Failed to fetch` in browser console
+
+    **Solutions**:
+    1. Verify backend is running:
+       ```bash
+       curl http://localhost:8000/health
+       ```
+
+    2. Check CORS configuration in `app.py`
+
+    3. Ensure frontend is proxying to correct backend URL
+
+    4. Restart both services:
+       ```bash
+       docker compose restart
+       ```
+  </Accordion>
+
+  <Accordion title="Clips Not Uploading to S3">
+    **Symptoms**: Clips generate but don't appear in S3 bucket
+
+    **Solutions**:
+    1. Verify AWS credentials:
+       ```bash
+       aws s3 ls s3://your-bucket-name --profile default
+       ```
+
+    2. Check IAM permissions (must include `s3:PutObject`)
+
+    3. Review backend logs for S3 errors:
+       ```bash
+       docker compose logs backend | grep -i s3
+       ```
+
+    4. Ensure bucket region matches `AWS_REGION` in `.env`
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<Warning>
+  OpenShorts containers run as a dedicated `appuser` (non-root) for security. Never modify the Dockerfile to run as root.
+</Warning>
+
+### File Upload Security
+
+- **Max file size**: 2GB (configurable in `app.py`)
+- **Automatic cleanup**: Jobs purged after 1 hour
+- **Isolation**: Each job runs in isolated directory
+
+### API Key Storage
+
+- **Client-side**: Encrypted in browser localStorage
+- **Server-side**: Never stored, only passed via headers
+- **Network**: Use HTTPS in production
+
+### Production Deployment
+
+For production deployments:
+
+1. **Use HTTPS**: Deploy behind a reverse proxy (nginx, Traefik)
+2. **Set environment variables**: Use secrets management (AWS Secrets Manager, etc.)
+3. **Enable authentication**: Add auth middleware to `app.py`
+4. **Monitor resources**: Set up logging and alerting
+5. **Backup strategy**: Configure S3 lifecycle policies
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Generate your first viral clip in 5 minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Integrate OpenShorts into your applications
+  </Card>
+  <Card title="YouTube Studio" icon="youtube" href="#">
+    Learn about AI title and thumbnail generation
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/mutonby/openshorts/issues">
+    Report bugs or request features
+  </Card>
+</CardGroup>

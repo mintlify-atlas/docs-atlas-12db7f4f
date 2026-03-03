@@ -1,0 +1,482 @@
+---
+title: AWS S3 Backup
+description: Configure automatic cloud backup for generated clips and metadata
+---
+
+## Overview
+
+OpenShorts automatically uploads all generated clips and metadata to AWS S3 for safe storage and easy retrieval. The upload process runs **silently in the background** without affecting the UI or processing logs.
+
+**Features:**
+- ✅ Automatic background upload after clip generation
+- ✅ Non-blocking (doesn't delay job completion)
+- ✅ Uploads clips (.mp4) and metadata (.json)
+- ✅ Organized by job ID
+- ✅ Presigned URL generation for secure sharing
+- ✅ Gallery view with cached clip listing
+
+## Setup
+
+Configure S3 backup using environment variables:
+
+<Steps>
+  <Step title="Set AWS Credentials">
+    Add your AWS credentials to the `.env` file or system environment:
+
+    ```bash
+    # .env
+    AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+    AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    ```
+
+    **Security:** Use IAM credentials with minimum required permissions (see below).
+  </Step>
+
+  <Step title="Configure Region and Bucket">
+    Set the AWS region and bucket name:
+
+    ```bash
+    # .env
+    AWS_REGION=us-east-1           # Optional, defaults to us-east-1
+    AWS_S3_BUCKET=my-clips-bucket  # Optional, defaults to openshorts.app-clips
+    ```
+  </Step>
+
+  <Step title="Create S3 Bucket">
+    If the bucket doesn't exist, create it:
+
+    ```bash
+    aws s3 mb s3://my-clips-bucket --region us-east-1
+    ```
+
+    **Bucket Configuration:**
+    - **Versioning**: Optional (recommended for safety)
+    - **Encryption**: Enable server-side encryption (SSE-S3 or SSE-KMS)
+    - **Public Access**: Block all public access (use presigned URLs)
+  </Step>
+
+  <Step title="Restart OpenShorts">
+    Restart the Docker containers to apply changes:
+
+    ```bash
+    docker compose down
+    docker compose up -d
+    ```
+  </Step>
+</Steps>
+
+## Required IAM Permissions
+
+Create an IAM user with these minimum permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::my-clips-bucket/*",
+        "arn:aws:s3:::my-clips-bucket"
+      ]
+    }
+  ]
+}
+```
+
+<Warning>
+**Security Best Practice:** Never use root AWS credentials. Create a dedicated IAM user for OpenShorts with restricted permissions.
+</Warning>
+
+## How It Works
+
+The upload process is triggered automatically after clips are generated:
+
+```python
+# app.py:260-262
+if returncode == 0:
+    jobs[job_id]['status'] = 'completed'
+    
+    # Start S3 upload in background (silent, non-blocking)
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, upload_job_artifacts, output_dir, job_id)
+```
+
+### Upload Function
+
+```python
+# s3_uploader.py:191-206
+def upload_job_artifacts(directory, job_id):
+    """
+    Upload all generated clips and metadata for a job to S3.
+    """
+    bucket_name = os.environ.get('AWS_S3_BUCKET', 'openshorts.app-clips')
+    
+    if not os.path.exists(directory):
+        return
+
+    for filename in os.listdir(directory):
+        # Upload .mp4 clips and the metadata JSON
+        if (filename.endswith(".mp4") or filename.endswith(".json")) and not filename.startswith("temp_"):
+            file_path = os.path.join(directory, filename)
+            s3_key = f"{job_id}/{filename}"
+            upload_file_to_s3(file_path, bucket_name, s3_key)
+```
+
+### Upload Logic
+
+```python
+# s3_uploader.py:14-39
+def upload_file_to_s3(file_path, bucket_name, s3_key):
+    """
+    Upload a file to an S3 bucket silently.
+    """
+    access_key = os.environ.get('AWS_ACCESS_KEY_ID')
+    secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    region = os.environ.get('AWS_REGION', 'us-east-1')
+
+    if not access_key or not secret_key:
+        return False  # Skip upload if credentials missing
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region
+    )
+    try:
+        s3_client.upload_file(file_path, bucket_name, s3_key)
+        return True
+    except ClientError:
+        return False  # Fail silently
+    except Exception:
+        return False
+```
+
+**Silent Operation:**
+- No logs printed on success
+- Errors suppressed (doesn't crash job)
+- Non-blocking (runs in thread pool)
+- Automatic retry via boto3 (default: 5 retries)
+
+## File Structure
+
+Files are organized by job ID:
+
+```
+s3://my-clips-bucket/
+├── abc-123-def-456/
+│   ├── My_Video_Title_metadata.json
+│   ├── My_Video_Title_clip_1.mp4
+│   ├── My_Video_Title_clip_2.mp4
+│   └── My_Video_Title_clip_3.mp4
+├── xyz-789-ghi-012/
+│   ├── Another_Video_metadata.json
+│   └── Another_Video_clip_1.mp4
+```
+
+**Naming Convention:**
+- Job ID: `{job_id}/`
+- Metadata: `{sanitized_title}_metadata.json`
+- Clips: `{sanitized_title}_clip_{index}.mp4`
+
+## Presigned URLs
+
+Generate temporary URLs for secure sharing:
+
+```python
+# s3_uploader.py:70-83
+def generate_presigned_url(bucket_name, object_key, expiration=3600):
+    """Generate a presigned URL to share an S3 object."""
+    s3_client = get_s3_client()
+    if not s3_client:
+        return None
+    try:
+        response = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket_name, 'Key': object_key},
+            ExpiresIn=expiration  # Default: 1 hour
+        )
+        return response
+    except ClientError as e:
+        logger.error(e)
+        return None
+```
+
+### Usage Example
+
+```python
+url = generate_presigned_url(
+    bucket_name='my-clips-bucket',
+    object_key='abc-123/My_Video_Title_clip_1.mp4',
+    expiration=7200  # 2 hours
+)
+
+# Share URL: https://my-clips-bucket.s3.amazonaws.com/abc-123/My_Video_Title_clip_1.mp4?X-Amz-Algorithm=...
+```
+
+## Gallery Listing
+
+Retrieve all clips from S3 with caching:
+
+```python
+# s3_uploader.py:85-189
+def list_all_clips(bucket_name=None, limit=50, force_refresh=False):
+    """
+    List recent clips from the S3 bucket by finding metadata files.
+    Returns a list of dicts containing clip info and signed URLs.
+    
+    Args:
+        bucket_name: S3 bucket name (defaults to AWS_S3_BUCKET env var)
+        limit: Maximum number of clips to return (default 50 for speed)
+        force_refresh: If True, bypass cache
+    """
+    global _clips_cache
+    
+    # Check cache first
+    now = time_module.time()
+    if not force_refresh and _clips_cache["data"] is not None:
+        if now - _clips_cache["timestamp"] < CACHE_TTL_SECONDS:  # 5 minutes
+            cached = _clips_cache["data"]
+            return cached[:limit] if limit else cached
+```
+
+### Caching Strategy
+
+```python
+# s3_uploader.py:46-51
+_clips_cache = {
+    "data": None,
+    "timestamp": 0
+}
+CACHE_TTL_SECONDS = 300  # 5 minutes
+```
+
+**Benefits:**
+- Reduces S3 API calls (cost savings)
+- Faster gallery loading
+- Automatic refresh after 5 minutes
+- Force refresh with `force_refresh=True`
+
+### Response Format
+
+```json
+[
+  {
+    "job_id": "abc-123-def-456",
+    "index": 0,
+    "url": "https://bucket.s3.amazonaws.com/...?X-Amz-Algorithm=...",
+    "title": "Epic Short Video",
+    "tiktok_desc": "Check this out! #fyp",
+    "insta_desc": "Amazing moment 🔥",
+    "created_at": "2025-03-03T12:34:56+00:00",
+    "duration": 42.5
+  }
+]
+```
+
+## Monitoring
+
+Check S3 upload logs (only on error):
+
+```bash
+# Check boto3 logs
+docker compose logs backend | grep -i "s3\|boto"
+
+# Check AWS CloudTrail for API calls
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=ResourceType,AttributeValue=AWS::S3::Bucket
+```
+
+### S3 Metrics
+
+Monitor bucket usage in AWS Console:
+
+1. Navigate to **S3 → Metrics**
+2. View **Bucket Metrics**:
+   - Storage (total bytes)
+   - Number of objects
+   - Request metrics (PUT, GET)
+
+<Note>
+**Cost Optimization:**
+- Enable **S3 Lifecycle Policies** to archive old clips to Glacier
+- Use **S3 Intelligent-Tiering** for automatic cost optimization
+- Monitor transfer costs (data out to internet)
+</Note>
+
+## Troubleshooting
+
+### Upload Fails Silently
+
+**Diagnosis:** Enable verbose logging temporarily:
+
+```python
+# s3_uploader.py:7-8
+logging.getLogger('boto3').setLevel(logging.DEBUG)
+logging.getLogger('botocore').setLevel(logging.DEBUG)
+```
+
+**Common Issues:**
+- Invalid credentials → Check `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+- Bucket doesn't exist → Create it or check name
+- No permissions → Verify IAM policy
+- Region mismatch → Ensure `AWS_REGION` matches bucket region
+
+### "Access Denied" Error
+
+**Solution:** Verify IAM permissions:
+
+```bash
+# Test upload manually
+aws s3 cp test.mp4 s3://my-clips-bucket/test/test.mp4 \
+  --profile openshorts
+
+# If it fails, check policy
+aws iam get-user-policy \
+  --user-name openshorts-user \
+  --policy-name S3UploadPolicy
+```
+
+### Slow Uploads
+
+**Solution:** Use S3 Transfer Acceleration:
+
+```python
+# s3_uploader.py:62-68
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=access_key,
+    aws_secret_access_key=secret_key,
+    region_name=region,
+    config=Config(
+        s3={'use_accelerate_endpoint': True}
+    )
+)
+```
+
+**Enable acceleration:**
+
+```bash
+aws s3api put-bucket-accelerate-configuration \
+  --bucket my-clips-bucket \
+  --accelerate-configuration Status=Enabled
+```
+
+## Environment Variables Reference
+
+<CodeGroup>
+```bash Required
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+```
+
+```bash Optional
+AWS_REGION=us-east-1                      # Default: us-east-1
+AWS_S3_BUCKET=openshorts.app-clips        # Default: openshorts.app-clips
+```
+
+```bash Validation
+# Test configuration
+python -c "
+import os
+from s3_uploader import get_s3_client
+client = get_s3_client()
+if client:
+    print('✅ S3 client configured successfully')
+else:
+    print('❌ Missing AWS credentials')
+"
+```
+</CodeGroup>
+
+## Cost Estimation
+
+Typical S3 costs for OpenShorts:
+
+**Assumptions:**
+- Average clip size: 20 MB
+- 100 clips/month
+- Storage: 2 GB/month
+- Region: us-east-1
+
+**Cost Breakdown:**
+
+| Item | Usage | Cost |
+|------|-------|------|
+| Storage (Standard) | 2 GB | $0.046/month |
+| PUT Requests | 100 | $0.0005 |
+| GET Requests (presigned) | 500 | $0.0002 |
+| Data Transfer Out | 1 GB | $0.09 |
+| **Total** | | **~$0.14/month** |
+
+<Note>
+**Cost Savings:**
+- Use **S3 Lifecycle Policies** to move old clips to Glacier after 30 days: **$0.004/GB**
+- Enable **Intelligent-Tiering** for automatic optimization: **$0.0025/1000 objects**
+</Note>
+
+## Advanced Configuration
+
+### Multipart Upload for Large Files
+
+Boto3 automatically uses multipart upload for files >5GB. Configure thresholds:
+
+```python
+# s3_uploader.py
+from boto3.s3.transfer import TransferConfig
+
+config = TransferConfig(
+    multipart_threshold=100 * 1024 * 1024,  # 100 MB
+    max_concurrency=10,
+    multipart_chunksize=10 * 1024 * 1024,   # 10 MB chunks
+    use_threads=True
+)
+
+s3_client.upload_file(
+    file_path, bucket_name, s3_key,
+    Config=config
+)
+```
+
+### Server-Side Encryption
+
+Enable encryption for uploaded files:
+
+```python
+# s3_uploader.py:34
+s3_client.upload_file(
+    file_path, bucket_name, s3_key,
+    ExtraArgs={
+        'ServerSideEncryption': 'AES256'  # Or 'aws:kms' for KMS
+    }
+)
+```
+
+### Custom Metadata
+
+Attach metadata to uploaded files:
+
+```python
+s3_client.upload_file(
+    file_path, bucket_name, s3_key,
+    ExtraArgs={
+        'Metadata': {
+            'job-id': job_id,
+            'clip-index': str(clip_index),
+            'created-by': 'OpenShorts'
+        }
+    }
+)
+```
+
+## Next Steps
+
+- [Publish clips to social media](/guides/social-integration)
+- [Customize video processing](/guides/customization)
+- [Learn about the processing pipeline](/guides/processing-videos)

@@ -1,0 +1,261 @@
+---
+title: Apply AI Effects
+description: Add dynamic AI-generated video effects using Gemini-powered FFmpeg filters
+---
+
+## POST /api/edit
+
+Applies AI-generated video effects to a clip using Gemini 2.0's vision capabilities. The AI analyzes the video content and transcript to generate contextually appropriate FFmpeg filters such as:
+
+- Dynamic zooms and pans
+- Color grading and LUTs
+- Speed ramping (slow-motion, fast-forward)
+- Lens effects (vignette, chromatic aberration)
+- Temporal effects (glitch, strobe)
+
+<Note>
+  This endpoint runs synchronously and may take 30-60 seconds depending on video length and effect complexity.
+</Note>
+
+## Authentication
+
+<ParamField header="X-Gemini-Key" type="string" required>
+  Your Google Gemini API key for AI analysis
+</ParamField>
+
+## Request Body
+
+<ParamField body="job_id" type="string" required>
+  The job ID from `/api/process`
+</ParamField>
+
+<ParamField body="clip_index" type="integer" required>
+  Zero-based index of the clip to edit (e.g., 0 for first clip)
+</ParamField>
+
+<ParamField body="api_key" type="string">
+  Alternative to `X-Gemini-Key` header - API key in request body
+</ParamField>
+
+<ParamField body="input_filename" type="string">
+  Specific video filename to edit (for effect chaining). If omitted, uses the original clip from the job result.
+</ParamField>
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "clip_index": 0,
+  "input_filename": "subtitled_video_123_clip_1.mp4"  // Optional: chain effects
+}
+```
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on successful edit
+</ResponseField>
+
+<ResponseField name="new_video_url" type="string" required>
+  Relative URL to the edited video file
+</ResponseField>
+
+<ResponseField name="edit_plan" type="object" required>
+  The AI-generated FFmpeg filter graph applied to the video
+</ResponseField>
+
+<ResponseField name="edit_plan.filter_complex" type="string">
+  Complete FFmpeg filter complex string
+</ResponseField>
+
+<ResponseField name="edit_plan.explanation" type="string">
+  Natural language explanation of applied effects
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/edited_video_123_clip_1.mp4",
+  "edit_plan": {
+    "filter_complex": "[0:v]zoompan=z='if(lte(zoom,1.0),1.5,max(1.0,zoom-0.01))':d=125:s=1080x1920,eq=contrast=1.2:brightness=0.05[v]",
+    "explanation": "Applied gradual zoom-in with enhanced contrast for dramatic effect during the key quote."
+  }
+}
+```
+
+## Effect Chaining
+
+You can chain multiple effects by passing the `input_filename` of a previously edited video:
+
+```bash
+# 1. Apply AI effects
+curl -X POST http://localhost:8000/api/edit \
+  -H "X-Gemini-Key: AIzaSy..." \
+  -H "Content-Type: application/json" \
+  -d '{"job_id": "abc-123", "clip_index": 0}'
+# Returns: {"new_video_url": "/videos/abc-123/edited_clip_1.mp4"}
+
+# 2. Add subtitles to edited video
+curl -X POST http://localhost:8000/api/subtitle \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "abc-123",
+    "clip_index": 0,
+    "input_filename": "edited_clip_1.mp4"
+  }'
+# Returns: {"new_video_url": "/videos/abc-123/subtitled_edited_clip_1.mp4"}
+
+# 3. Add hook overlay to subtitled + edited video
+curl -X POST http://localhost:8000/api/hook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "abc-123",
+    "clip_index": 0,
+    "text": "Wait for it...",
+    "input_filename": "subtitled_edited_clip_1.mp4"
+  }'
+```
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| 400 | Missing Gemini API key (header or body) |
+| 404 | Job ID not found |
+| 400 | Job result not available (still processing or failed) |
+| 404 | Video file not found at specified path |
+| 500 | FFmpeg processing error or Gemini API failure |
+
+## Examples
+
+### Basic Edit Request
+
+```bash
+curl -X POST http://localhost:8000/api/edit \
+  -H "X-Gemini-Key: AIzaSy..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "new_video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/edited_video_123_clip_1.mp4",
+  "edit_plan": {
+    "filter_complex": "[0:v]setpts=0.8*PTS,zoompan=z='min(1.5,zoom+0.002)':d=1:s=1080x1920,curves=vintage[v]",
+    "explanation": "Speed up by 20% + subtle zoom + vintage color grade for nostalgic feel"
+  }
+}
+```
+
+### Python SDK Example
+
+```python
+import requests
+
+url = "http://localhost:8000/api/edit"
+headers = {"X-Gemini-Key": "AIzaSy..."}
+payload = {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0
+}
+
+response = requests.post(url, headers=headers, json=payload)
+result = response.json()
+
+if result["success"]:
+    print(f"Edited video: {result['new_video_url']}")
+    print(f"Effects applied: {result['edit_plan']['explanation']}")
+else:
+    print(f"Edit failed: {response.text}")
+```
+
+### JavaScript/Fetch Example
+
+```javascript
+const editClip = async (jobId, clipIndex) => {
+  const response = await fetch('http://localhost:8000/api/edit', {
+    method: 'POST',
+    headers: {
+      'X-Gemini-Key': 'AIzaSy...',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      clip_index: clipIndex
+    })
+  });
+  
+  const result = await response.json();
+  
+  if (result.success) {
+    console.log('New video URL:', result.new_video_url);
+    console.log('Applied effects:', result.edit_plan.explanation);
+  }
+  
+  return result;
+};
+
+// Usage
+await editClip('550e8400-e29b-41d4-a716-446655440000', 0);
+```
+
+### Chain Multiple Effects
+
+```python
+import requests
+
+headers = {"X-Gemini-Key": "AIzaSy..."}
+job_id = "550e8400-e29b-41d4-a716-446655440000"
+
+# 1. Apply AI effects
+edit_response = requests.post(
+    "http://localhost:8000/api/edit",
+    headers=headers,
+    json={"job_id": job_id, "clip_index": 0}
+)
+edited_filename = edit_response.json()["new_video_url"].split("/")[-1]
+
+# 2. Add subtitles to edited version
+subtitle_response = requests.post(
+    "http://localhost:8000/api/subtitle",
+    json={
+        "job_id": job_id,
+        "clip_index": 0,
+        "input_filename": edited_filename,
+        "position": "bottom",
+        "font_size": 18
+    }
+)
+subtitled_filename = subtitle_response.json()["new_video_url"].split("/")[-1]
+
+print(f"Final video: {subtitled_filename}")
+```
+
+## How It Works
+
+1. **Video Upload**: The clip is uploaded to Gemini Files API
+2. **AI Analysis**: Gemini analyzes video frames and transcript to understand content
+3. **Filter Generation**: AI generates contextually appropriate FFmpeg filter commands
+4. **FFmpeg Processing**: Filters are applied frame-by-frame
+5. **Result**: New video file is saved with `edited_` prefix
+
+<Warning>
+  Edited videos **replace** the original in the job result's `video_url` field. To preserve the original, use `input_filename` for manual chaining.
+</Warning>
+
+## Performance Notes
+
+- **Processing Time**: 30-60 seconds for typical 30-second clips
+- **CPU Usage**: High during FFmpeg filter application
+- **Blocking**: This endpoint is synchronous (waits for completion)
+
+## Next Steps
+
+- [Add subtitles](/api/subtitle) to edited videos
+- [Add text hooks](/api/hook) for engagement
+- [Translate videos](/api/translate) with voice dubbing
+- [Post to social media](/api/social)

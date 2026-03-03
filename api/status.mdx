@@ -1,0 +1,266 @@
+---
+title: Check Job Status
+description: Poll the processing status of a submitted job
+---
+
+## GET /api/status/{job_id}
+
+Retrieves the current status, logs, and results for a processing job. Use this endpoint to poll for completion after submitting a video via `/api/process`.
+
+## Request
+
+<ParamField path="job_id" type="string" required>
+  The unique job identifier returned from `/api/process`
+</ParamField>
+
+## Response
+
+<ResponseField name="status" type="string" required>
+  Current job state: `queued`, `processing`, `completed`, or `failed`
+</ResponseField>
+
+<ResponseField name="logs" type="array" required>
+  Array of log messages tracking job progress
+</ResponseField>
+
+<ResponseField name="result" type="object">
+  Processing results (only present when status is `completed`)
+</ResponseField>
+
+<ResponseField name="result.clips" type="array">
+  Array of extracted viral clips with metadata
+</ResponseField>
+
+<ResponseField name="result.clips[].video_url" type="string">
+  Relative URL to access the clip video file
+</ResponseField>
+
+<ResponseField name="result.clips[].title" type="string">
+  AI-generated viral title for the clip
+</ResponseField>
+
+<ResponseField name="result.clips[].video_description_for_tiktok" type="string">
+  TikTok-optimized caption with hashtags
+</ResponseField>
+
+<ResponseField name="result.clips[].video_description_for_instagram" type="string">
+  Instagram Reels caption with hashtags
+</ResponseField>
+
+<ResponseField name="result.clips[].video_title_for_youtube_short" type="string">
+  YouTube Shorts title (max 100 characters)
+</ResponseField>
+
+<ResponseField name="result.clips[].start" type="number">
+  Start timestamp in original video (seconds)
+</ResponseField>
+
+<ResponseField name="result.clips[].end" type="number">
+  End timestamp in original video (seconds)
+</ResponseField>
+
+<ResponseField name="result.clips[].virality_score" type="number">
+  AI-assigned virality score (0-100)
+</ResponseField>
+
+<ResponseField name="result.cost_analysis" type="object">
+  API cost breakdown for this job
+</ResponseField>
+
+<ResponseField name="result.cost_analysis.total_cost" type="number">
+  Total estimated cost in USD
+</ResponseField>
+
+## Status Values
+
+| Status | Description |
+|--------|-------------|
+| `queued` | Job is waiting for an available worker slot |
+| `processing` | Worker is actively processing the video |
+| `completed` | All clips extracted successfully |
+| `failed` | Processing encountered an error (check logs) |
+
+## Incremental Updates
+
+The API provides real-time updates during processing. Poll every 2-5 seconds to get:
+
+- Live log entries (stdout from main.py)
+- Partial results as clips finish rendering
+- Cost analysis updates
+
+<Tip>
+  The `result.clips` array populates incrementally as clips finish. You can display partial results before the job completes.
+</Tip>
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| 404 | Job ID not found (expired or invalid) |
+
+## Examples
+
+### Poll for Completion
+
+```bash
+curl http://localhost:8000/api/status/550e8400-e29b-41d4-a716-446655440000
+```
+
+**Response (Queued):**
+```json
+{
+  "status": "queued",
+  "logs": [
+    "Job 550e8400-e29b-41d4-a716-446655440000 queued."
+  ],
+  "result": null
+}
+```
+
+**Response (Processing):**
+```json
+{
+  "status": "processing",
+  "logs": [
+    "Job 550e8400-e29b-41d4-a716-446655440000 queued.",
+    "Job started by worker.",
+    "Downloading video from YouTube...",
+    "Transcribing audio with Whisper...",
+    "Detecting scenes with PySceneDetect...",
+    "Analyzing viral moments with Gemini AI..."
+  ],
+  "result": null
+}
+```
+
+**Response (Completed):**
+```json
+{
+  "status": "completed",
+  "logs": [
+    "Job 550e8400-e29b-41d4-a716-446655440000 queued.",
+    "Job started by worker.",
+    "...",
+    "Process finished successfully."
+  ],
+  "result": {
+    "clips": [
+      {
+        "video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/video_123_clip_1.mp4",
+        "title": "Mind-Blowing AI Secret!",
+        "video_description_for_tiktok": "This AI trick will change everything! #ai #tech #viral",
+        "video_description_for_instagram": "You won't believe what AI can do now 🤯 #ai #tech #reels",
+        "video_title_for_youtube_short": "AI Secret That Shocked Everyone",
+        "start": 45.2,
+        "end": 68.5,
+        "virality_score": 87
+      },
+      {
+        "video_url": "/videos/550e8400-e29b-41d4-a716-446655440000/video_123_clip_2.mp4",
+        "title": "This Changes Everything",
+        "video_description_for_tiktok": "Wait for the ending 😱 #viral #mindblown",
+        "video_description_for_instagram": "The plot twist at the end! 🔥 #viral #trending",
+        "video_title_for_youtube_short": "The Ending Will Shock You",
+        "start": 120.0,
+        "end": 155.3,
+        "virality_score": 92
+      }
+    ],
+    "cost_analysis": {
+      "total_cost": 0.0042,
+      "gemini_api_calls": 3,
+      "whisper_duration_seconds": 180
+    }
+  }
+}
+```
+
+**Response (Failed):**
+```json
+{
+  "status": "failed",
+  "logs": [
+    "Job 550e8400-e29b-41d4-a716-446655440000 queued.",
+    "Job started by worker.",
+    "Downloading video from YouTube...",
+    "Process failed with exit code 1",
+    "Execution error: yt-dlp download failed"
+  ],
+  "result": null
+}
+```
+
+### Python Polling Loop
+
+```python
+import requests
+import time
+
+job_id = "550e8400-e29b-41d4-a716-446655440000"
+
+while True:
+    response = requests.get(f"http://localhost:8000/api/status/{job_id}")
+    data = response.json()
+    
+    print(f"Status: {data['status']}")
+    
+    if data['status'] == 'completed':
+        clips = data['result']['clips']
+        print(f"✅ Generated {len(clips)} clips!")
+        for i, clip in enumerate(clips):
+            print(f"  Clip {i+1}: {clip['title']}")
+        break
+    
+    elif data['status'] == 'failed':
+        print("❌ Processing failed:")
+        print("\n".join(data['logs'][-5:]))  # Last 5 log lines
+        break
+    
+    time.sleep(3)  # Poll every 3 seconds
+```
+
+### JavaScript Polling with async/await
+
+```javascript
+const pollStatus = async (jobId) => {
+  while (true) {
+    const response = await fetch(`http://localhost:8000/api/status/${jobId}`);
+    const data = await response.json();
+    
+    console.log('Status:', data.status);
+    
+    if (data.status === 'completed') {
+      console.log('✅ Clips ready:', data.result.clips);
+      return data.result;
+    }
+    
+    if (data.status === 'failed') {
+      console.error('❌ Processing failed:', data.logs);
+      throw new Error('Job failed');
+    }
+    
+    // Update UI with logs
+    data.logs.forEach(log => console.log(log));
+    
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+};
+
+// Usage
+try {
+  const result = await pollStatus('550e8400-e29b-41d4-a716-446655440000');
+  console.log('Processing complete!', result);
+} catch (error) {
+  console.error('Job failed:', error);
+}
+```
+
+## Next Steps
+
+Once a job completes:
+
+- [Apply AI effects](/api/edit) to enhance clips
+- [Add subtitles](/api/subtitle) with custom positioning
+- [Add text hooks](/api/hook) for engagement
+- [Translate videos](/api/translate) to reach global audiences
+- [Post to social media](/api/social) directly

@@ -1,0 +1,454 @@
+---
+title: Social Media Integration
+description: Connect your TikTok, Instagram, and YouTube accounts for automated posting
+---
+
+## Overview
+
+OpenShorts integrates with [Upload-Post](https://upload-post.com) to publish your generated clips directly to TikTok, Instagram Reels, and YouTube Shorts. The integration supports:
+
+- ✅ Multiple social media accounts per profile
+- ✅ Async uploads (non-blocking API)
+- ✅ Platform-specific metadata (titles, descriptions)
+- ✅ Scheduled posting with timezone support
+- ✅ Free tier available (no credit card required)
+
+## Setup Guide
+
+Follow these steps to enable social media posting:
+
+<Steps>
+  <Step title="Login or Register">
+    Visit [app.upload-post.com/login](https://app.upload-post.com/login) and create an account.
+    
+    **Note:** Free tier is available with no credit card required for testing.
+  </Step>
+
+  <Step title="Create Profile">
+    Navigate to [Manage Users](https://app.upload-post.com/manage-users) and create a user profile.
+    
+    This profile will represent a collection of connected social accounts (e.g., "My Brand", "Personal", "Client A").
+  </Step>
+
+  <Step title="Connect Accounts">
+    In the same **Manage Users** section, connect your social media accounts to the profile:
+    
+    - **TikTok**: OAuth authentication
+    - **Instagram**: OAuth authentication (requires Business or Creator account)
+    - **YouTube**: OAuth authentication with upload permissions
+    
+    You can connect multiple platforms to a single profile.
+  </Step>
+
+  <Step title="Get API Key">
+    Navigate to [API Keys](https://app.upload-post.com/api-keys) and generate your key.
+    
+    **Security:** Keep this key secure. It provides full access to your Upload-Post account.
+  </Step>
+
+  <Step title="Use in OpenShorts">
+    In the OpenShorts dashboard:
+    
+    1. Click the **Settings** icon (⚙️)
+    2. Paste your Upload-Post API Key
+    3. Select your profile from the dropdown
+    4. Click **Save**
+    
+    The dashboard will automatically fetch your connected platforms.
+  </Step>
+</Steps>
+
+## API Integration
+
+OpenShorts uses the Upload-Post REST API to handle uploads:
+
+### Endpoint
+
+```bash
+POST https://api.upload-post.com/api/upload
+```
+
+### Authentication
+
+```python
+# app.py:845-847
+url = "https://api.upload-post.com/api/upload"
+headers = {
+    "Authorization": f"Apikey {req.api_key}"
+}
+```
+
+### Request Format
+
+```python
+# app.py:849-875
+data_payload = {
+    "user": req.user_id,              # Profile username from Manage Users
+    "title": final_title,              # Fallback title
+    "platform[]": req.platforms,       # ["tiktok", "instagram", "youtube"]
+    "async_upload": "true",            # Enable background upload
+    
+    # Optional scheduling
+    "scheduled_date": "2025-03-15T14:30:00",  # ISO-8601 format
+    "timezone": "America/New_York",
+    
+    # Platform-specific fields
+    "tiktok_title": final_description,
+    "instagram_title": final_description,
+    "media_type": "REELS",
+    "youtube_title": yt_title,
+    "youtube_description": final_description,
+    "privacyStatus": "public"
+}
+```
+
+### Code Example
+
+<CodeGroup>
+```python Backend (app.py:816-900)
+@app.post("/api/social/post")
+async def post_to_socials(req: SocialPostRequest):
+    # Resolve file path
+    clip = job['result']['clips'][req.clip_index]
+    filename = clip['video_url'].split('/')[-1]
+    file_path = os.path.join(OUTPUT_DIR, req.job_id, filename)
+    
+    # Prepare metadata
+    final_title = req.title or clip.get('video_title_for_youtube_short')
+    final_description = req.description or clip.get('video_description_for_instagram')
+    
+    # Upload using httpx (sync client for multipart files)
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(url, headers=headers, data=data_payload, files=files)
+    
+    return response.json()
+```
+
+```bash cURL Example
+curl -X POST https://api.upload-post.com/api/upload \
+  -H "Authorization: Apikey YOUR_API_KEY" \
+  -F "user=my-profile" \
+  -F "platform[]=tiktok" \
+  -F "platform[]=instagram" \
+  -F "platform[]=youtube" \
+  -F "title=My Viral Short" \
+  -F "tiktok_title=Check this out! #fyp #viral" \
+  -F "instagram_title=Amazing moment 🔥 #reels" \
+  -F "media_type=REELS" \
+  -F "youtube_title=Epic Short Video" \
+  -F "youtube_description=Subscribe for more!" \
+  -F "privacyStatus=public" \
+  -F "async_upload=true" \
+  -F "video=@clip_1.mp4"
+```
+
+```json Response (202 Accepted)
+{
+  "success": true,
+  "message": "Upload queued successfully",
+  "upload_id": "abc123def456",
+  "platforms": ["tiktok", "instagram", "youtube"]
+}
+```
+</CodeGroup>
+
+## Platform-Specific Requirements
+
+<Tabs>
+  <Tab title="TikTok">
+    **Required Fields:**
+    - `tiktok_title`: Description text (max 2200 characters)
+    - `platform[]`: Must include `"tiktok"`
+
+    **Best Practices:**
+    - Include hashtags in the title
+    - Keep titles under 150 characters for mobile visibility
+    - Use emojis sparingly
+    - Add trending hashtags (#fyp, #viral, #foryou)
+
+    **Example:**
+    ```python
+    "tiktok_title": "This changed everything 🤯 #fyp #viral #mindblown"
+    ```
+  </Tab>
+
+  <Tab title="Instagram Reels">
+    **Required Fields:**
+    - `instagram_title`: Caption text (max 2200 characters)
+    - `media_type`: Must be `"REELS"`
+    - `platform[]`: Must include `"instagram"`
+
+    **Account Requirements:**
+    - Must be a Business or Creator account
+    - Personal accounts cannot upload via API
+
+    **Best Practices:**
+    - First line is most important (appears in feed)
+    - Use line breaks for readability
+    - Include 5-10 relevant hashtags
+    - Tag locations when relevant
+
+    **Example:**
+    ```python
+    "instagram_title": "Wait for the ending 😱\n\nDouble tap if this surprised you!\n\n#reels #viral #trending",
+    "media_type": "REELS"
+    ```
+  </Tab>
+
+  <Tab title="YouTube Shorts">
+    **Required Fields:**
+    - `youtube_title`: Video title (max 100 characters)
+    - `youtube_description`: Description text (max 5000 characters)
+    - `privacyStatus`: `"public"`, `"private"`, or `"unlisted"`
+    - `platform[]`: Must include `"youtube"`
+
+    **Title Best Practices:**
+    - Use ALL CAPS for emphasis (sparingly)
+    - Include keywords for SEO
+    - Keep under 60 characters for mobile
+    - Add emojis for attention
+
+    **Description Tips:**
+    - Include timestamps if relevant
+    - Add links to related content
+    - Use hashtags (max 15)
+    - Include call-to-action (subscribe, comment)
+
+    **Example:**
+    ```python
+    "youtube_title": "This Secret Hack CHANGED My Life 🤯",
+    "youtube_description": """The moment at 0:15 will blow your mind!
+    
+    🔔 Subscribe for more life hacks
+    💬 Comment your thoughts below
+    
+    #shorts #lifehack #viral""",
+    "privacyStatus": "public"
+    ```
+  </Tab>
+</Tabs>
+
+## Profile Selection
+
+The dashboard fetches available profiles from Upload-Post:
+
+```python
+# app.py:902-954
+@app.get("/api/social/user")
+async def get_social_user(api_key: str = Header(..., alias="X-Upload-Post-Key")):
+    url = "https://api.upload-post.com/api/uploadposts/users"
+    headers = {"Authorization": f"Apikey {api_key}"}
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(url, headers=headers)
+        data = resp.json()
+        
+        # Parse profiles and connected platforms
+        profiles_list = []
+        for p in data.get('profiles', []):
+            username = p.get('username')
+            socials = p.get('social_accounts', {})
+            connected = []
+            
+            for platform in ['tiktok', 'instagram', 'youtube']:
+                account_info = socials.get(platform)
+                if isinstance(account_info, dict):
+                    connected.append(platform)
+            
+            profiles_list.append({
+                "username": username,
+                "connected": connected
+            })
+        
+        return {"profiles": profiles_list}
+```
+
+### Response Format
+
+```json
+{
+  "profiles": [
+    {
+      "username": "my-brand",
+      "connected": ["tiktok", "instagram", "youtube"]
+    },
+    {
+      "username": "personal",
+      "connected": ["tiktok"]
+    }
+  ]
+}
+```
+
+## Scheduling Options
+
+Schedule posts for optimal engagement times:
+
+```python
+# app.py:857-861
+if req.scheduled_date:
+    data_payload["scheduled_date"] = req.scheduled_date  # ISO-8601
+    if req.timezone:
+        data_payload["timezone"] = req.timezone
+```
+
+### Timezone Support
+
+```json
+{
+  "scheduled_date": "2025-03-15T14:30:00",
+  "timezone": "America/New_York"
+}
+```
+
+**Common Timezones:**
+- `America/New_York` (EST/EDT)
+- `America/Los_Angeles` (PST/PDT)
+- `Europe/London` (GMT/BST)
+- `Asia/Tokyo` (JST)
+- `Australia/Sydney` (AEDT)
+- `UTC` (Default)
+
+<Note>
+**Best Posting Times:**
+- **TikTok**: 6-10 AM, 7-11 PM (user's local time)
+- **Instagram**: 11 AM - 2 PM, 7-9 PM
+- **YouTube**: 2-4 PM, 8-10 PM
+
+Schedule across timezones for maximum reach.
+</Note>
+
+## Frontend Integration
+
+The dashboard provides a publish modal:
+
+```javascript
+// Example usage in React
+const publishClip = async (clipIndex) => {
+  const response = await fetch('/api/social/post', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      job_id: currentJobId,
+      clip_index: clipIndex,
+      api_key: uploadPostApiKey,
+      user_id: selectedProfile,
+      platforms: ['tiktok', 'instagram', 'youtube'],
+      title: customTitle || clip.video_title_for_youtube_short,
+      description: customDescription || clip.video_description_for_instagram,
+      scheduled_date: scheduleDate,  // Optional
+      timezone: 'America/New_York'    // Optional
+    })
+  });
+  
+  const result = await response.json();
+  if (result.success) {
+    console.log('Upload queued:', result.upload_id);
+  }
+};
+```
+
+## Error Handling
+
+```python
+# app.py:892-894
+if response.status_code not in [200, 201, 202]:
+    print(f"❌ Upload-Post Error: {response.text}")
+    raise HTTPException(status_code=response.status_code, detail=f"Vendor API Error: {response.text}")
+```
+
+**Common Errors:**
+
+<CodeGroup>
+```json 401 Unauthorized
+{
+  "error": "Invalid API key"
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Profile not found"
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "Platform not connected to profile"
+}
+```
+
+```json 413 Payload Too Large
+{
+  "error": "Video file exceeds size limit"
+}
+```
+</CodeGroup>
+
+## Rate Limits
+
+Upload-Post enforces rate limits per API key:
+
+- **Free Tier**: 10 uploads/day
+- **Pro Tier**: 100 uploads/day
+- **Enterprise**: Custom limits
+
+<Warning>
+**Burst Protection:** If you hit rate limits, the API returns `429 Too Many Requests`. Implement exponential backoff:
+
+```javascript
+const retryWithBackoff = async (fn, maxRetries = 3) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error.status === 429 && i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+      } else {
+        throw error;
+      }
+    }
+  }
+};
+```
+</Warning>
+
+## Best Practices
+
+1. **Test with Private Posts**: Use `"privacyStatus": "private"` for testing
+2. **Monitor Async Status**: Check Upload-Post dashboard for upload progress
+3. **Customize Per Platform**: Use platform-specific titles and descriptions
+4. **Schedule Strategically**: Post during peak engagement times
+5. **Verify Profiles**: Ensure platforms are connected before posting
+6. **Handle Errors Gracefully**: Show user-friendly error messages
+
+## Troubleshooting
+
+### "Profile not found"
+
+**Solution:** Verify the profile username matches exactly (case-sensitive):
+
+```bash
+curl -H "Authorization: Apikey YOUR_KEY" \
+  https://api.upload-post.com/api/uploadposts/users
+```
+
+### "Platform not connected"
+
+**Solution:** Reconnect the platform in Upload-Post dashboard:
+
+1. Go to [Manage Users](https://app.upload-post.com/manage-users)
+2. Click the profile
+3. Re-authenticate the platform
+
+### "Upload queued but not appearing"
+
+**Solution:** Async uploads may take 5-30 minutes depending on file size. Check the Upload-Post dashboard for status.
+
+## Next Steps
+
+- [Configure automatic S3 backup](/guides/aws-s3-backup)
+- [Customize clip output](/guides/customization)
+- [Learn about video processing](/guides/processing-videos)

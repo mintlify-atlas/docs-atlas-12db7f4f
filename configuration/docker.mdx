@@ -1,0 +1,401 @@
+---
+title: Docker Deployment
+description: Deploy OpenShorts using Docker with multi-stage builds and security best practices
+---
+
+OpenShorts is containerized using Docker for consistent, portable deployments. The official Docker setup uses multi-stage builds, non-root execution, and optimized layer caching.
+
+## Quick Start
+
+```bash
+git clone https://github.com/mutonby/openshorts.git
+cd openshorts
+docker compose up --build
+```
+
+**Services:**
+- **Backend:** `http://localhost:8000` (FastAPI)
+- **Frontend:** `http://localhost:5175` (Vite dev server)
+
+## Docker Compose Configuration
+
+OpenShorts uses a two-service architecture defined in `docker-compose.yml`:
+
+```yaml
+services:
+  backend:
+    build: .
+    container_name: openshorts-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/__pycache__
+    restart: unless-stopped
+
+  frontend:
+    build: ./dashboard
+    container_name: openshorts-frontend
+    ports:
+      - "5175:5173"
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    restart: unless-stopped
+    depends_on:
+      - backend
+```
+
+### Service Details
+
+<ParamField path="backend" type="service">
+  **Backend API server** running FastAPI with Uvicorn.
+  
+  - **Port:** `8000` (mapped to host `8000`)
+  - **Technology:** Python 3.11, FastAPI, Uvicorn
+  - **Volume mounts:** Source code hot-reload in development
+  - **Restart policy:** `unless-stopped` for production resilience
+</ParamField>
+
+<ParamField path="frontend" type="service">
+  **Frontend dashboard** with Vite development server and HMR.
+  
+  - **Port:** `5173` (mapped to host `5175`)
+  - **Technology:** React 18, Vite 4, Tailwind CSS
+  - **Volume mounts:** Source code hot-reload, isolated node_modules
+  - **Dependencies:** Waits for backend to be ready
+</ParamField>
+
+## Backend Dockerfile
+
+OpenShorts uses a **multi-stage build** for smaller final images and security.
+
+### Stage 1: Builder
+
+```dockerfile
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+```
+
+**Purpose:**
+- Install build tools (gcc, g++) needed for compiling Python packages
+- Create isolated virtual environment
+- Compile all Python dependencies
+- Build artifacts are copied to final stage (build tools are discarded)
+
+**Benefits:**
+- Smaller final image (no build toolchain)
+- Faster subsequent builds (layer caching)
+- Secure supply chain (pinned dependencies)
+
+### Stage 2: Final Runtime
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install FFmpeg, OpenCV dependencies, and Node.js
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual env from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+
+# Always upgrade yt-dlp to latest
+RUN pip install --upgrade --no-cache-dir yt-dlp
+
+# Copy application code
+COPY . .
+```
+
+**Runtime dependencies:**
+- **FFmpeg:** Video processing, cutting, encoding, subtitle burning
+- **OpenCV deps:** `libgl1`, `libglib2.0-0`, etc. for computer vision
+- **Node.js:** Required by yt-dlp for bypassing YouTube JavaScript challenges
+
+**Why upgrade yt-dlp?**
+YouTube frequently updates bot-detection mechanisms. Using the latest yt-dlp ensures maximum download success rate.
+
+### Non-Root User Execution
+
+```dockerfile
+# Create a non-root user
+RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
+
+# Create directories including Ultralytics cache config
+RUN mkdir -p /app/uploads /app/output /tmp/Ultralytics
+RUN chown -R appuser:appuser /app /tmp/Ultralytics
+
+# Switch to non-root user
+USER appuser
+
+# Pre-download YOLO model on build
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+EXPOSE 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+**Security benefits:**
+- **Principle of least privilege:** App runs with minimal permissions
+- **Container escape protection:** If container is compromised, attacker has limited privileges
+- **File system isolation:** User cannot write to system directories
+
+**Directory ownership:**
+- `/app`: Application code, uploads, output files
+- `/tmp/Ultralytics`: YOLOv8 model cache (required for AI cropping)
+
+**Pre-downloaded models:**
+YOLOv8n model (11MB) is downloaded during image build to avoid runtime delays and ensure offline operation.
+
+## Volume Mounts Explained
+
+### Backend Volumes
+
+```yaml
+volumes:
+  - .:/app              # Mount source code for hot-reload
+  - /app/__pycache__    # Exclude Python cache from host
+```
+
+**Why mount source code?**
+- **Development mode:** Code changes trigger auto-reload without rebuilding
+- **Production mode:** Remove volume mounts and bake code into image
+
+**Why exclude `__pycache__`?**
+Prevents host Python cache conflicts with container Python version. Container generates its own cache.
+
+### Frontend Volumes
+
+```yaml
+volumes:
+  - ./dashboard:/app    # Mount React source for hot-reload
+  - /app/node_modules   # Isolate node_modules in container
+```
+
+**Why isolate `node_modules`?**
+- **Cross-platform compatibility:** Host OS may have incompatible binaries (e.g., macOS vs Linux)
+- **Performance:** Native container filesystem is faster than bind-mount
+- **Avoid conflicts:** Prevents host and container dependency version mismatches
+
+## Production Deployment
+
+### Optimizations for Production
+
+**1. Remove development volumes:**
+
+```yaml
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    # volumes: []  # Remove volumes
+    restart: always
+```
+
+**2. Build production frontend:**
+
+Replace frontend service with static file server:
+
+```yaml
+services:
+  frontend:
+    image: nginx:alpine
+    volumes:
+      - ./dashboard/dist:/usr/share/nginx/html:ro
+    ports:
+      - "80:80"
+    restart: always
+```
+
+Build frontend assets:
+
+```bash
+cd dashboard
+npm run build  # Generates dashboard/dist
+```
+
+**3. Environment variables:**
+
+Add `.env` file for production:
+
+```yaml
+services:
+  backend:
+    env_file:
+      - .env.production
+```
+
+**4. Increase concurrency:**
+
+```bash
+# .env.production
+MAX_CONCURRENT_JOBS=10
+```
+
+### Resource Limits
+
+Prevent resource exhaustion:
+
+```yaml
+services:
+  backend:
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+```
+
+**Recommended specs:**
+- **Minimum:** 2 CPU cores, 4GB RAM
+- **Recommended:** 4 CPU cores, 8GB RAM
+- **High-performance:** 8+ CPU cores, 16GB+ RAM
+
+### Reverse Proxy Setup
+
+Use Nginx or Traefik for HTTPS and load balancing:
+
+```nginx
+upstream openshorts_backend {
+    server localhost:8000;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api.openshorts.app;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location / {
+        proxy_pass http://openshorts_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+## Troubleshooting
+
+### Build Failures
+
+**Symptom:** `ERROR: failed to solve: process "/bin/sh -c pip install..." did not complete successfully`
+
+**Solutions:**
+1. Clear Docker cache: `docker builder prune -a`
+2. Check network connectivity
+3. Verify `requirements.txt` syntax
+4. Increase Docker memory limit in Docker Desktop settings
+
+### Permission Denied Errors
+
+**Symptom:** `PermissionError: [Errno 13] Permission denied: '/app/uploads'`
+
+**Solutions:**
+1. Verify directory ownership: `ls -la` inside container
+2. Check Dockerfile `chown` commands
+3. SELinux/AppArmor: Add `:z` flag to volumes: `- ./uploads:/app/uploads:z`
+
+### Port Already in Use
+
+**Symptom:** `Error starting userland proxy: listen tcp4 0.0.0.0:8000: bind: address already in use`
+
+**Solutions:**
+1. Kill process using port: `lsof -ti:8000 | xargs kill`
+2. Change port mapping: `"8001:8000"`
+3. Stop conflicting container: `docker ps` then `docker stop <container>`
+
+### YOLOv8 Model Not Found
+
+**Symptom:** `FileNotFoundError: yolov8n.pt not found`
+
+**Solutions:**
+1. Rebuild image: `docker compose build --no-cache`
+2. Verify model download step in Dockerfile
+3. Check `/tmp/Ultralytics` permissions
+
+### Frontend Cannot Reach Backend
+
+**Symptom:** `ERR_CONNECTION_REFUSED` or `Network Error`
+
+**Solutions:**
+1. Verify backend is running: `docker compose logs backend`
+2. Check Vite proxy config in `dashboard/vite.config.js`
+3. Use backend container name in proxy: `http://openshorts-backend:8000`
+4. Ensure frontend `depends_on: [backend]` is set
+
+## Advanced Configuration
+
+### Multi-Platform Builds
+
+Build for ARM64 (Apple Silicon, Raspberry Pi) and AMD64:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t openshorts:latest .
+```
+
+### Health Checks
+
+Add health check for auto-restart:
+
+```yaml
+services:
+  backend:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+```
+
+### Persistent Storage
+
+Mount volumes for data persistence:
+
+```yaml
+services:
+  backend:
+    volumes:
+      - openshorts_uploads:/app/uploads
+      - openshorts_output:/app/output
+
+volumes:
+  openshorts_uploads:
+  openshorts_output:
+```
+
+Backup volumes:
+
+```bash
+docker run --rm -v openshorts_output:/data -v $(pwd):/backup \
+  alpine tar czf /backup/output-backup.tar.gz -C /data .
+```

@@ -1,0 +1,329 @@
+---
+title: 'Social Media Distribution'
+description: 'One-click posting to TikTok, Instagram, and YouTube with async upload support'
+icon: 'share-nodes'
+---
+
+## Overview
+
+OpenShorts integrates with **Upload-Post API** to distribute your viral clips to TikTok, Instagram Reels, and YouTube Shorts with a single API call. The system supports **async uploads**, platform-specific metadata, and user profile selection.
+
+## Upload-Post API Integration
+
+The `/api/social/post` endpoint handles multi-platform distribution:
+
+```python app.py
+class SocialPostRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    api_key: str
+    user_id: str
+    platforms: List[str]  # ["tiktok", "instagram", "youtube"]
+    # Optional overrides
+    title: Optional[str] = None
+    description: Optional[str] = None
+    scheduled_date: Optional[str] = None  # ISO-8601 string
+    timezone: Optional[str] = "UTC"
+
+@app.post("/api/social/post")
+async def post_to_socials(req: SocialPostRequest):
+    # Resolve video file path
+    clip = job['result']['clips'][req.clip_index]
+    filename = clip['video_url'].split('/')[-1]
+    file_path = os.path.join(OUTPUT_DIR, req.job_id, filename)
+    
+    # Construct Upload-Post API request
+    url = "https://api.upload-post.com/api/upload"
+    headers = {
+        "Authorization": f"Apikey {req.api_key}"
+    }
+    
+    data_payload = {
+        "user": req.user_id,
+        "title": final_title,
+        "platform[]": req.platforms,
+        "async_upload": "true"  # Enable async upload
+    }
+    
+    # Platform-specific parameters
+    if "tiktok" in req.platforms:
+        data_payload["tiktok_title"] = final_description
+        
+    if "instagram" in req.platforms:
+        data_payload["instagram_title"] = final_description
+        data_payload["media_type"] = "REELS"
+    
+    if "youtube" in req.platforms:
+        data_payload["youtube_title"] = yt_title
+        data_payload["youtube_description"] = final_description
+        data_payload["privacyStatus"] = "public"
+    
+    # Send file
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+        
+    files = {
+        "video": (filename, file_content, "video/mp4")
+    }
+    
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(url, headers=headers, data=data_payload, files=files)
+        
+    return response.json()
+```
+
+## Platform-Specific Parameters
+
+### TikTok
+
+```python
+data_payload = {
+    "tiktok_title": "POV: You discovered the AI workflow that changed everything 🤯 #ai #automation"
+}
+```
+
+<Info>
+TikTok titles are limited to 150 characters and support emojis and hashtags.
+</Info>
+
+### Instagram Reels
+
+```python
+data_payload = {
+    "instagram_title": "This AI hack will save you 10 hours/week. Comment WORKFLOW and I'll send it! 🔥",
+    "media_type": "REELS"
+}
+```
+
+<Warning>
+Instagram requires `media_type: "REELS"` to post vertical videos as Reels (not feed posts).
+</Warning>
+
+### YouTube Shorts
+
+```python
+data_payload = {
+    "youtube_title": "I Automated My Entire Workflow with AI (10 Hours Saved Per Week)",
+    "youtube_description": "Full tutorial in bio! #shorts #ai #productivity",
+    "privacyStatus": "public"  # or "private", "unlisted"
+}
+```
+
+<Check>
+YouTube Short titles are limited to 100 characters. The system automatically uses `video_title_for_youtube_short` from Gemini's analysis.
+</Check>
+
+## Async Upload Feature
+
+The `async_upload: "true"` parameter enables background processing:
+
+```python
+data_payload = {
+    "async_upload": "true"
+}
+```
+
+**Benefits**:
+- API returns immediately with upload ID
+- Large videos don't timeout the request
+- You can queue multiple uploads in parallel
+
+**Response**:
+
+```json
+{
+  "upload_id": "abc123",
+  "status": "processing",
+  "platforms": ["tiktok", "instagram", "youtube"]
+}
+```
+
+## User Profile Selection
+
+Before posting, fetch connected social accounts:
+
+```python app.py
+@app.get("/api/social/user")
+async def get_social_user(api_key: str = Header(..., alias="X-Upload-Post-Key")):
+    """Proxy to fetch user ID from Upload-Post"""
+    url = "https://api.upload-post.com/api/uploadposts/users"
+    headers = {"Authorization": f"Apikey {api_key}"}
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(url, headers=headers)
+        data = resp.json()
+        
+        profiles_list = []
+        raw_profiles = data.get('profiles', [])
+        for p in raw_profiles:
+            username = p.get('username')
+            socials = p.get('social_accounts', {})
+            connected = []
+            
+            # Check which platforms are connected
+            for platform in ['tiktok', 'instagram', 'youtube']:
+                account_info = socials.get(platform)
+                if isinstance(account_info, dict):
+                    connected.append(platform)
+            
+            profiles_list.append({
+                "username": username,
+                "connected": connected
+            })
+        
+        return {"profiles": profiles_list}
+```
+
+**Example Response**:
+
+```json
+{
+  "profiles": [
+    {
+      "username": "my_brand",
+      "connected": ["tiktok", "instagram", "youtube"]
+    },
+    {
+      "username": "personal_account",
+      "connected": ["instagram"]
+    }
+  ]
+}
+```
+
+## Scheduled Posting
+
+Schedule clips for future publication:
+
+```python
+data_payload = {
+    "scheduled_date": "2026-03-15T14:30:00",  # ISO-8601 format
+    "timezone": "America/New_York"
+}
+```
+
+<Tip>
+Scheduled posts are useful for consistent content calendars and optimal posting times for each platform.
+</Tip>
+
+## Full API Example
+
+```javascript JavaScript (Frontend)
+const response = await fetch('/api/social/post', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Upload-Post-Key': uploadPostApiKey
+  },
+  body: JSON.stringify({
+    job_id: 'a7f3c2d1-...',
+    clip_index: 0,
+    api_key: uploadPostApiKey,
+    user_id: 'my_brand',
+    platforms: ['tiktok', 'instagram', 'youtube'],
+    title: 'Custom Title Override',
+    description: 'Custom description with CTA! Comment WORKFLOW 👇',
+    scheduled_date: '2026-03-15T14:30:00',
+    timezone: 'America/Los_Angeles'
+  })
+});
+
+const result = await response.json();
+console.log('Upload ID:', result.upload_id);
+```
+
+```python Python (Backend)
+import httpx
+
+# From OpenShorts backend
+response = httpx.post(
+    "https://api.upload-post.com/api/upload",
+    headers={"Authorization": f"Apikey {api_key}"},
+    data={
+        "user": user_id,
+        "platform[]": ["tiktok", "instagram", "youtube"],
+        "title": "My Viral Clip",
+        "async_upload": "true",
+        "tiktok_title": "TikTok-specific caption",
+        "instagram_title": "Instagram caption with CTA",
+        "youtube_title": "YouTube Short Title",
+        "youtube_description": "Description with hashtags",
+        "privacyStatus": "public"
+    },
+    files={
+        "video": ("clip.mp4", open(video_path, "rb"), "video/mp4")
+    },
+    timeout=120.0
+)
+
+print(response.json())
+```
+
+```bash cURL
+curl -X POST https://api.upload-post.com/api/upload \
+  -H "Authorization: Apikey YOUR_API_KEY" \
+  -F "user=my_brand" \
+  -F "platform[]=tiktok" \
+  -F "platform[]=instagram" \
+  -F "platform[]=youtube" \
+  -F "title=My Viral Clip" \
+  -F "async_upload=true" \
+  -F "tiktok_title=POV: You discovered... 🤯" \
+  -F "instagram_title=This will change your life! Comment WORKFLOW 👇" \
+  -F "youtube_title=How I Automated Everything with AI" \
+  -F "youtube_description=Full guide in bio! #shorts #ai" \
+  -F "privacyStatus=public" \
+  -F "video=@clip.mp4"
+```
+
+## Metadata Auto-Fill
+
+If you don't provide custom titles/descriptions, OpenShorts uses Gemini's AI-generated metadata:
+
+```python app.py
+# Fallbacks from Gemini analysis
+final_title = req.title or clip.get('title', 'Viral Short')
+final_description = (
+    req.description or 
+    clip.get('video_description_for_instagram') or 
+    clip.get('video_description_for_tiktok') or 
+    "Check this out!"
+)
+
+if "youtube" in req.platforms:
+    yt_title = (
+        req.title or 
+        clip.get('video_title_for_youtube_short', final_title)
+    )
+```
+
+## Error Handling
+
+```python
+try:
+    response = client.post(url, headers=headers, data=data_payload, files=files)
+    
+    if response.status_code not in [200, 201, 202]:
+        print(f"❌ Upload-Post Error: {response.text}")
+        raise HTTPException(
+            status_code=response.status_code, 
+            detail=f"Vendor API Error: {response.text}"
+        )
+    
+    return response.json()
+    
+except Exception as e:
+    print(f"❌ Social Post Exception: {e}")
+    raise HTTPException(status_code=500, detail=str(e))
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Viral Detection" icon="sparkles" href="/features/viral-detection">
+    AI-generated platform-specific metadata
+  </Card>
+  <Card title="YouTube Studio" icon="youtube" href="/features/youtube-studio">
+    Full YouTube publishing pipeline
+  </Card>
+</CardGroup>

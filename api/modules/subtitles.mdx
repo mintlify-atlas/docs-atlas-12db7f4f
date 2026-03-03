@@ -1,0 +1,248 @@
+---
+title: "subtitles.py"
+description: "Subtitle generation and burning for vertical videos"
+---
+
+## Overview
+
+The `subtitles.py` module handles subtitle generation from transcripts and burns them into videos using FFmpeg. It supports both pre-existing transcripts and auto-transcription for dubbed videos.
+
+## Key Functions
+
+### generate_srt
+
+```python
+def generate_srt(
+    transcript: dict,
+    clip_start: float,
+    clip_end: float,
+    output_path: str,
+    max_chars: int = 20,
+    max_duration: float = 2.0
+) -> bool
+```
+
+Generates an SRT subtitle file from a transcript for a specific time range.
+
+**Parameters:**
+- `transcript` (dict): Transcript with word-level timestamps (from `main.transcribe_video()`)
+- `clip_start` (float): Clip start time in seconds (absolute)
+- `clip_end` (float): Clip end time in seconds (absolute)
+- `output_path` (str): Path to save .srt file
+- `max_chars` (int): Maximum characters per subtitle line (default: 20 for vertical)
+- `max_duration` (float): Maximum duration per subtitle block in seconds (default: 2.0)
+
+**Returns:**
+- `bool`: True if successful, False if no words found in range
+
+**Process:**
+1. Extracts words within `[clip_start, clip_end]` range
+2. Groups words into blocks based on:
+   - Character limit (default 20 for readability on vertical video)
+   - Duration limit (default 2 seconds)
+3. Adjusts timestamps relative to clip start (0-based)
+4. Writes SRT format with proper timing
+
+**Example Output (.srt):**
+```
+1
+00:00:00,000 --> 00:00:01,500
+This is the first
+
+2
+00:00:01,500 --> 00:00:03,200
+subtitle block
+
+3
+00:00:03,200 --> 00:00:05,000
+for vertical video
+```
+
+### generate_srt_from_video
+
+```python
+def generate_srt_from_video(
+    video_path: str,
+    output_path: str,
+    max_chars: int = 20,
+    max_duration: float = 2.0
+) -> bool
+```
+
+Transcribes a video and generates SRT directly (used for dubbed videos without existing transcripts).
+
+**Parameters:**
+- `video_path` (str): Path to video file
+- `output_path` (str): Path to save .srt file
+- `max_chars` (int): Maximum characters per line (default: 20)
+- `max_duration` (float): Maximum duration per block (default: 2.0s)
+
+**Returns:**
+- `bool`: True if successful, False otherwise
+
+**Process:**
+1. Calls `transcribe_audio()` to get transcript
+2. Probes video duration using OpenCV
+3. Calls `generate_srt()` for full video range `[0, duration]`
+
+### burn_subtitles
+
+```python
+def burn_subtitles(
+    video_path: str,
+    srt_path: str,
+    output_path: str,
+    alignment: int = 2,
+    fontsize: int = 16
+) -> bool
+```
+
+Burns subtitles into video using FFmpeg with styled rendering.
+
+**Parameters:**
+- `video_path` (str): Input video path
+- `srt_path` (str): Path to .srt subtitle file
+- `output_path` (str): Output video path
+- `alignment` (int): Subtitle position (2=bottom, 6=top, 10=middle)
+- `fontsize` (int): Font size in pixels (default: 16, scaled 0.5x for libass)
+
+**Returns:**
+- `bool`: True if successful (raises exception on failure)
+
+**FFmpeg Command:**
+```bash
+ffmpeg -y -i video.mp4 \
+  -vf "subtitles='subtitles.srt':force_style='<style_string>'" \
+  -c:a copy \
+  -c:v libx264 -preset fast -crf 23 \
+  output.mp4
+```
+
+**Subtitle Styling:**
+- **Font**: Verdana Bold
+- **Color**: White (`&H00FFFFFF`)
+- **Background**: Opaque box with 40% opacity black (`&H60000000`)
+- **Border Style**: 3 (opaque box)
+- **Alignment**: User-specified (default: bottom center)
+- **Margin**: 25px vertical margin
+
+**Alignment Mapping:**
+
+| Value | Position      | ASS Code |
+|-------|---------------|----------|
+| 2     | Bottom Center | 2        |
+| 6     | Top Center    | 6        |
+| 10    | Middle Center | 10       |
+
+Also accepts string values: `"top"`, `"middle"`, `"bottom"`
+
+### transcribe_audio
+
+```python
+def transcribe_audio(video_path: str) -> dict
+```
+
+Transcribes audio from video using faster-whisper (internal helper).
+
+**Parameters:**
+- `video_path` (str): Path to video file
+
+**Returns:**
+- `dict` with keys:
+  - `segments` (list): Transcript segments with word timestamps
+  - `language` (str): Detected language code
+
+**Configuration:**
+- Model: `"base"`
+- Device: `"cpu"`
+- Compute Type: `"int8"` (optimized for speed)
+
+### format_srt_block
+
+```python
+def format_srt_block(index: int, start: float, end: float, text: str) -> str
+```
+
+Formats a single SRT subtitle block.
+
+**Parameters:**
+- `index` (int): Subtitle sequence number (1-based)
+- `start` (float): Start time in seconds
+- `end` (float): End time in seconds
+- `text` (str): Subtitle text content
+
+**Returns:**
+- `str`: Formatted SRT block with newlines
+
+**Time Format:**
+```
+HH:MM:SS,mmm
+```
+Example: `00:00:12,340` (12.34 seconds)
+
+## SRT Format
+
+Standard SubRip (.srt) format:
+
+```
+[sequence_number]
+[start_time] --> [end_time]
+[text_content]
+
+[next_sequence_number]
+...
+```
+
+## Example Usage
+
+### For Clips with Existing Transcript
+
+```python
+from subtitles import generate_srt, burn_subtitles
+
+# Generate SRT for clip (15s - 45s of original video)
+generate_srt(
+    transcript=transcript_data,  # From main.transcribe_video()
+    clip_start=15.0,
+    clip_end=45.0,
+    output_path="clip_1.srt",
+    max_chars=20,
+    max_duration=2.0
+)
+
+# Burn subtitles into video
+burn_subtitles(
+    video_path="clip_1.mp4",
+    srt_path="clip_1.srt",
+    output_path="clip_1_subtitled.mp4",
+    alignment=2,  # Bottom
+    fontsize=24
+)
+```
+
+### For Dubbed Videos (Auto-transcribe)
+
+```python
+from subtitles import generate_srt_from_video, burn_subtitles
+
+# Transcribe dubbed video and generate SRT
+generate_srt_from_video(
+    video_path="clip_dubbed_es.mp4",
+    output_path="clip_dubbed_es.srt"
+)
+
+# Burn subtitles
+burn_subtitles(
+    video_path="clip_dubbed_es.mp4",
+    srt_path="clip_dubbed_es.srt",
+    output_path="clip_dubbed_es_subtitled.mp4",
+    alignment=6  # Top (voice is dubbed, show subs at top)
+)
+```
+
+## Dependencies
+
+- `faster-whisper`: Audio transcription (base model, CPU int8)
+- `opencv-python` (cv2): Video duration extraction
+- `ffmpeg`: Subtitle burning (subprocess)
+- `subprocess`: FFmpeg execution

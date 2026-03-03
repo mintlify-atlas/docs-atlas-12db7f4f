@@ -1,80 +1,240 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get OpenShorts running in under 5 minutes with Docker
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
+Get OpenShorts up and running in under 5 minutes using Docker Compose. This guide will walk you through the complete setup from installation to generating your first viral clip.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Before you begin, make sure you have:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Docker & Docker Compose" icon="docker">
+    Required for running OpenShorts containers
+  </Card>
+  <Card title="Google Gemini API Key" icon="key">
+    Free API key for AI-powered viral moment detection
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Don't have a Gemini API key? Get one for free at [Google AI Studio](https://aistudio.google.com/app/apikey)
 </Note>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the OpenShorts repository to your local machine:
+
+    ```bash
+    git clone https://github.com/mutonby/openshorts.git
+    cd openshorts
+    ```
+  </Step>
+
+  <Step title="Launch with Docker Compose">
+    Build and start all services with a single command:
+
+    ```bash
+    docker compose up --build
+    ```
+
+    This will:
+    - Build the backend container (FastAPI + Python AI processing)
+    - Build the frontend container (React dashboard with Vite)
+    - Start both services with automatic restart enabled
+    - Map ports: backend on `8000`, frontend on `5175`
+
+    <Info>
+      First build may take 2-5 minutes to download dependencies and models. Subsequent starts are much faster.
+    </Info>
+  </Step>
+
+  <Step title="Access the Dashboard">
+    Open your browser and navigate to:
+
+    ```
+    http://localhost:5173
+    ```
+
+    <Warning>
+      Note: The frontend runs on port `5173` internally, but Docker maps it to `5175` externally. Always use `localhost:5173` when accessing from your browser.
+    </Warning>
+  </Step>
+
+  <Step title="Configure API Keys">
+    On first launch, you'll be prompted to enter your API keys:
+
+    **Required:**
+    - **Gemini API Key**: For AI-powered viral moment detection and title generation
+
+    **Optional:**
+    - **Upload-Post API Key**: For direct social media posting (free tier available)
+    - **ElevenLabs API Key**: For AI voice dubbing in 30+ languages
+
+    <Note>
+      API keys are stored encrypted in your browser's local storage and never sent to any server except the respective API providers.
+    </Note>
+  </Step>
+</Steps>
+
+## Generate Your First Clip
+
+Now that OpenShorts is running, let's create your first viral vertical video:
+
+<Steps>
+  <Step title="Choose Your Source">
+    You can either:
+    - Paste a **YouTube URL** (e.g., a podcast, interview, or tutorial)
+    - **Upload a local video file** (up to 2GB)
+
+    ```bash
+    # Example YouTube URLs that work great:
+    https://www.youtube.com/watch?v=xlyjD1qCaX0  # Interviews
+    https://www.youtube.com/watch?v=...           # Podcasts
+    https://www.youtube.com/watch?v=...           # Tutorials
+    ```
+  </Step>
+
+  <Step title="Click Generate Clips">
+    Hit the **"Generate Clips"** button and watch the magic happen!
+
+    The dashboard will show real-time progress:
+    - Video download/upload progress
+    - Transcription status
+    - AI analysis of viral moments
+    - Clip extraction and processing
+    - Vertical reframing with subject tracking
+
+    <Info>
+      Processing time varies by video length. A 10-minute video typically takes 2-4 minutes to process and generate 3-15 clips.
+    </Info>
+  </Step>
+
+  <Step title="Review Generated Clips">
+    Once processing completes, you'll see:
+    - All generated clips in the results feed
+    - AI-generated titles and descriptions for each clip
+    - Preview thumbnails
+    - Download options
+
+    Each clip is automatically:
+    - Cropped to 9:16 vertical format
+    - Stabilized with "Heavy Tripod" smoothing
+    - Optimized for TikTok, Instagram Reels, and YouTube Shorts
+  </Step>
+
+  <Step title="Download or Post">
+    For each clip, you can:
+
+    **Download**: Save the MP4 file to your device
+
+    **Post to Social Media** (if Upload-Post API key configured):
+    - Select your social profile
+    - Choose platforms: TikTok, Instagram, YouTube
+    - Customize title and description
+    - Post with a single click
+
+    **Apply Effects** (optional):
+    - Add AI-generated subtitles
+    - Apply text hook overlays
+    - Dub to another language with voice cloning
+  </Step>
+</Steps>
+
+## Example Workflow
+
+Here's a complete example processing a YouTube video:
+
+<CodeGroup>
+```bash Terminal
+# 1. Start OpenShorts
+docker compose up --build
+
+# 2. Open browser
+open http://localhost:5173
+```
+
+```json API Request (Advanced)
+// Alternative: Use the REST API directly
+POST http://localhost:8000/api/process
+Content-Type: multipart/form-data
+
+{
+  "youtube_url": "https://www.youtube.com/watch?v=xlyjD1qCaX0",
+  "gemini_api_key": "your-gemini-key"
+}
+```
+</CodeGroup>
+
+**Dashboard Process:**
+1. Paste YouTube URL: `https://www.youtube.com/watch?v=xlyjD1qCaX0`
+2. Enter Gemini API key in settings
+3. Click **"Generate Clips"**
+4. Wait 2-4 minutes for processing
+5. Download or post your 3-15 viral clips
+
+## Optional Enhancements
+
+### Enable Social Media Posting
+
+To post clips directly to social platforms:
+
+<Steps>
+  <Step title="Sign Up for Upload-Post">
+    1. Visit [app.upload-post.com/login](https://app.upload-post.com/login)
+    2. Create a free account (no credit card required)
+  </Step>
+
+  <Step title="Connect Social Accounts">
+    1. Go to [Manage Users](https://app.upload-post.com/manage-users)
+    2. Create a user profile
+    3. Connect your TikTok, Instagram, or YouTube accounts
+  </Step>
+
+  <Step title="Get API Key">
+    1. Navigate to [API Keys](https://app.upload-post.com/api-keys)
+    2. Generate your API key
+    3. Paste it in OpenShorts dashboard settings
+  </Step>
+</Steps>
+
+### Enable AI Voice Dubbing
+
+To translate clips to 30+ languages:
+
+1. Sign up at [elevenlabs.io](https://elevenlabs.io)
+2. Get your API key from the dashboard
+3. Enter it in OpenShorts settings
+4. Use the "Translate" button on any generated clip
+
+### Enable S3 Backup
+
+To automatically backup clips to AWS S3, see the [Installation Guide](/installation) or [AWS S3 Backup Guide](/guides/aws-s3-backup).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Detailed environment setup and configuration options
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Integrate OpenShorts into your own applications
+  </Card>
+  <Card title="YouTube Studio" icon="youtube" href="#">
+    Learn about AI title and thumbnail generation
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/installation">
+    Common issues and solutions
+  </Card>
+</CardGroup>
+
+## Need Help?
+
+<Card title="Join the Community" icon="github" href="https://github.com/mutonby/openshorts/issues">
+  Report issues, request features, or get help from the community
+</Card>

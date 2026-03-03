@@ -1,0 +1,240 @@
+---
+title: "main.py"
+description: "Core video processing module for transcription, scene detection, and vertical reframing"
+---
+
+## Overview
+
+The `main.py` module is the heart of OpenShorts' video processing pipeline. It handles:
+
+- YouTube video downloads
+- Audio transcription with word-level timestamps
+- Scene detection and strategic framing
+- AI-powered viral clip identification
+- Vertical video reframing with subject tracking
+
+## Key Functions
+
+### process_video_to_vertical
+
+```python
+def process_video_to_vertical(input_video: str, final_output_video: str) -> bool
+```
+
+Converts a horizontal video to vertical (9:16) using scene detection and active speaker tracking.
+
+**Parameters:**
+- `input_video` (str): Path to input video file
+- `final_output_video` (str): Path for output vertical video
+
+**Returns:**
+- `bool`: True if successful, False otherwise
+
+**Processing Steps:**
+1. Detects scenes using PySceneDetect
+2. Analyzes each scene (single subject vs. group)
+3. Applies appropriate framing strategy:
+   - **TRACK mode**: MediaPipe face detection + YOLOv8 fallback with stabilization
+   - **GENERAL mode**: Blurred background layout for groups/landscapes
+4. Merges processed video with original audio
+
+### transcribe_video
+
+```python
+def transcribe_video(video_path: str) -> dict
+```
+
+Transcribes video audio using faster-whisper with word-level timestamps.
+
+**Parameters:**
+- `video_path` (str): Path to video file
+
+**Returns:**
+- `dict` with keys:
+  - `text` (str): Full transcript text
+  - `segments` (list): Segment objects with word timestamps
+  - `language` (str): Detected language code
+
+**Example Output:**
+```python
+{
+  "text": "This is the full transcript...",
+  "segments": [
+    {
+      "text": "This is the full transcript",
+      "start": 0.0,
+      "end": 2.5,
+      "words": [
+        {"word": "This", "start": 0.0, "end": 0.2, "probability": 0.99},
+        {"word": "is", "start": 0.25, "end": 0.35, "probability": 0.98}
+      ]
+    }
+  ],
+  "language": "en"
+}
+```
+
+### get_viral_clips
+
+```python
+def get_viral_clips(transcript_result: dict, video_duration: float) -> dict
+```
+
+Uses Google Gemini 2.5 Flash to identify viral moments from transcript.
+
+**Parameters:**
+- `transcript_result` (dict): Output from `transcribe_video()`
+- `video_duration` (float): Total video duration in seconds
+
+**Returns:**
+- `dict` containing:
+  - `shorts` (list): Array of clip objects
+  - `cost_analysis` (dict): Token usage and cost breakdown
+
+**Clip Object Structure:**
+```python
+{
+  "start": 12.340,  # Absolute seconds from video start
+  "end": 37.900,
+  "video_description_for_tiktok": "...",
+  "video_description_for_instagram": "...",
+  "video_title_for_youtube_short": "...",
+  "viral_hook_text": "POV: You realized..."  # Max 10 words
+}
+```
+
+**Constraints:**
+- Clips are 15-60 seconds each
+- Returns 3-15 clips ranked by predicted performance
+- Uses ABSOLUTE timestamps (not relative)
+
+### detect_scenes
+
+```python
+def detect_scenes(video_path: str) -> tuple[list, float]
+```
+
+Detects scene boundaries using content-based analysis.
+
+**Parameters:**
+- `video_path` (str): Path to video file
+
+**Returns:**
+- `tuple` of:
+  - `scene_list` (list): List of (start_time, end_time) tuples
+  - `fps` (float): Video framerate
+
+### download_youtube_video
+
+```python
+def download_youtube_video(url: str, output_dir: str = ".") -> tuple[str, str]
+```
+
+Downloads YouTube video using yt-dlp with advanced bot detection bypass.
+
+**Parameters:**
+- `url` (str): YouTube video URL
+- `output_dir` (str): Directory to save video (default: current directory)
+
+**Returns:**
+- `tuple` of:
+  - `downloaded_file` (str): Path to downloaded MP4 file
+  - `sanitized_title` (str): Sanitized video title
+
+**Features:**
+- Automatically selects H.264 codec for compatibility
+- Uses multiple player clients (tv_embed, android) to bypass restrictions
+- Supports cookie authentication via `YOUTUBE_COOKIES` env var
+- Sanitizes filenames (removes special characters, limits length to 100 chars)
+
+## Core Classes
+
+### SmoothedCameraman
+
+```python
+class SmoothedCameraman:
+    def __init__(self, output_width: int, output_height: int, 
+                 video_width: int, video_height: int)
+```
+
+Implements "Heavy Tripod" stabilization for smooth camera movement.
+
+**Key Features:**
+- Safe zone logic: only moves when subject leaves center zone (25% of crop width)
+- Adaptive speed: slow pan (3px/frame) or fast reframe (15px/frame)
+- Prevents oscillation with overshoot detection
+
+**Methods:**
+
+#### update_target
+```python
+def update_target(self, face_box: list) -> None
+```
+Updates target center based on detected face/person bounding box `[x, y, w, h]`.
+
+#### get_crop_box
+```python
+def get_crop_box(self, force_snap: bool = False) -> tuple[int, int, int, int]
+```
+Returns current crop coordinates `(x1, y1, x2, y2)` for the frame.
+
+**Parameters:**
+- `force_snap` (bool): If True, immediately snap to target (used on scene changes)
+
+### SpeakerTracker
+
+```python
+class SpeakerTracker:
+    def __init__(self, stabilization_frames: int = 15, cooldown_frames: int = 30)
+```
+
+Tracks active speakers to prevent rapid camera switching.
+
+**Key Features:**
+- Face ID assignment using proximity matching
+- Score decay system (0.85x per frame)
+- Hysteresis: 3x score bonus for current active speaker
+- Cooldown period (30 frames) before switching to new speaker
+
+**Methods:**
+
+#### get_target
+```python
+def get_target(self, face_candidates: list, frame_number: int, width: int) -> Optional[list]
+```
+
+Determines which face to focus on.
+
+**Parameters:**
+- `face_candidates` (list): List of dicts with `{"box": [x,y,w,h], "score": float}`
+- `frame_number` (int): Current frame index
+- `width` (int): Video width for distance calculations
+
+**Returns:**
+- `list`: Bounding box `[x, y, w, h]` of target speaker, or `None`
+
+## Constants
+
+### ASPECT_RATIO
+```python
+ASPECT_RATIO = 9 / 16  # 0.5625
+```
+Target aspect ratio for vertical videos.
+
+### GEMINI_PROMPT_TEMPLATE
+Comprehensive prompt template for viral clip detection. Includes:
+- FFmpeg timestamp format requirements
+- Clip duration constraints (15-60s)
+- Natural cut point guidelines
+- Output JSON schema with social media metadata
+
+## Dependencies
+
+- `faster-whisper`: CPU-optimized transcription (base model, int8 quantization)
+- `google-genai`: Gemini API client
+- `ultralytics`: YOLOv8 person detection
+- `mediapipe`: Face detection (BlazeFace)
+- `opencv-python` (cv2): Video frame processing
+- `scenedetect`: Scene boundary detection
+- `yt-dlp`: YouTube video downloads
+- `ffmpeg`: Video encoding/merging (subprocess)

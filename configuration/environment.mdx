@@ -1,0 +1,169 @@
+---
+title: Environment Variables
+description: Configure OpenShorts server-side settings with environment variables
+---
+
+OpenShorts uses environment variables for server-side configuration. These variables control AWS S3 integration, concurrent processing limits, and production deployment settings.
+
+## Configuration File
+
+Create a `.env` file in the project root directory:
+
+```bash
+# AWS S3 (optional — for clip backup/gallery)
+AWS_ACCESS_KEY_ID=your_aws_access_key_here
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
+AWS_REGION=eu-west-3
+AWS_S3_BUCKET=your-bucket-name
+
+# YouTube cookies (optional — paste Netscape-format cookies to bypass bot detection)
+# YOUTUBE_COOKIES=...
+```
+
+## Environment Variables Reference
+
+### Processing Configuration
+
+<ParamField path="MAX_CONCURRENT_JOBS" type="integer" default="5">
+  Maximum number of video processing jobs that can run simultaneously. Increase this value on powerful servers with multiple CPU cores and sufficient RAM.
+  
+  **Recommended values:**
+  - 2-4 cores: `3`
+  - 8+ cores: `5-10`
+  - 16+ cores: `10-15`
+</ParamField>
+
+### AWS S3 Configuration (Optional)
+
+Enable automatic backup of generated clips to AWS S3. All variables must be set for S3 upload to work.
+
+<ParamField path="AWS_ACCESS_KEY_ID" type="string">
+  Your AWS access key ID with S3 write permissions.
+  
+  **Example:** `AKIAIOSFODNN7EXAMPLE`
+</ParamField>
+
+<ParamField path="AWS_SECRET_ACCESS_KEY" type="string">
+  Your AWS secret access key corresponding to the access key ID.
+  
+  **Security:** Never commit this value to version control. Use `.env` file or environment-specific secrets management.
+</ParamField>
+
+<ParamField path="AWS_REGION" type="string" default="us-east-1">
+  AWS region where your S3 bucket is located.
+  
+  **Common values:** `us-east-1`, `us-west-2`, `eu-west-1`, `eu-west-3`, `ap-southeast-1`
+</ParamField>
+
+<ParamField path="AWS_S3_BUCKET" type="string" default="openshorts.app-clips">
+  Name of the S3 bucket where clips will be uploaded. Bucket must exist and be accessible with the provided credentials.
+  
+  **Naming rules:** Lowercase letters, numbers, hyphens only. No underscores or spaces.
+</ParamField>
+
+### YouTube Download Configuration
+
+<ParamField path="YOUTUBE_COOKIES" type="string">
+  Netscape-format cookies file content for bypassing YouTube bot detection and download restrictions.
+  
+  **How to get cookies:**
+  1. Install a browser extension like "Get cookies.txt"
+  2. Visit YouTube while logged in
+  3. Export cookies in Netscape format
+  4. Paste the entire content as a single-line string
+  
+  **Note:** This is optional but recommended if you encounter frequent download failures.
+</ParamField>
+
+### Production Deployment
+
+<ParamField path="VITE_API_URL" type="string">
+  Override the API URL used by the frontend in production builds.
+  
+  **Example:** `https://api.openshorts.app`
+  
+  **Note:** Only needed when deploying frontend and backend to different domains. Development mode uses Vite proxy.
+</ParamField>
+
+## Loading Environment Variables
+
+OpenShorts automatically loads environment variables from `.env` using `python-dotenv`:
+
+```python
+from dotenv import load_dotenv
+load_dotenv()
+```
+
+Variables are accessed in `app.py:29`:
+
+```python
+MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
+```
+
+## Docker Configuration
+
+When using Docker Compose, pass environment variables via:
+
+### Option 1: Environment File
+
+Add to `docker-compose.yml`:
+
+```yaml
+services:
+  backend:
+    env_file:
+      - .env
+```
+
+### Option 2: Direct Environment Variables
+
+```yaml
+services:
+  backend:
+    environment:
+      - MAX_CONCURRENT_JOBS=10
+      - AWS_REGION=us-east-1
+```
+
+### Option 3: System Environment
+
+```bash
+export MAX_CONCURRENT_JOBS=10
+docker compose up --build
+```
+
+## Security Best Practices
+
+<Warning>
+  Never commit `.env` files to version control. Add `.env` to your `.gitignore`:
+  
+  ```bash
+  echo ".env" >> .gitignore
+  ```
+</Warning>
+
+<Tip>
+  Use separate `.env` files for different environments:
+  - `.env.development`
+  - `.env.production`
+  - `.env.staging`
+</Tip>
+
+## Troubleshooting
+
+### S3 Upload Not Working
+
+1. **Verify credentials:** Test AWS credentials with AWS CLI:
+   ```bash
+   aws s3 ls s3://your-bucket-name --region your-region
+   ```
+
+2. **Check IAM permissions:** Ensure your AWS user has `s3:PutObject` permission
+
+3. **Bucket must exist:** Create bucket before starting OpenShorts
+
+### Concurrent Jobs Not Limiting
+
+- **Check value type:** Must be integer, not string
+- **Restart required:** Changes require backend restart
+- **Verify in logs:** Check startup logs for "Job Queue Worker started with X concurrent slots"

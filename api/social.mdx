@@ -1,0 +1,361 @@
+---
+title: Social Media Distribution
+description: Post videos to TikTok, Instagram, and YouTube via Upload-Post API
+---
+
+## POST /api/social/post
+
+Posts a processed video clip to one or more social media platforms (TikTok, Instagram Reels, YouTube Shorts) using the Upload-Post API. Supports immediate posting or scheduled publishing.
+
+<Note>
+  This endpoint uses **async upload mode** - the video upload happens in the background. Check the Upload-Post dashboard for final status.
+</Note>
+
+## Authentication
+
+No authentication header required. Pass API key in request body.
+
+## Request Body
+
+<ParamField body="job_id" type="string" required>
+  The job ID from `/api/process`
+</ParamField>
+
+<ParamField body="clip_index" type="integer" required>
+  Zero-based index of the clip to post
+</ParamField>
+
+<ParamField body="api_key" type="string" required>
+  Your Upload-Post API key
+</ParamField>
+
+<ParamField body="user_id" type="string" required>
+  Upload-Post user/profile username to post from
+</ParamField>
+
+<ParamField body="platforms" type="array" required>
+  Array of platforms to post to: `["tiktok", "instagram", "youtube"]`
+</ParamField>
+
+<ParamField body="title" type="string">
+  Override the AI-generated title (fallback: clip's `title` field)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Override the AI-generated description (fallback: platform-specific descriptions)
+</ParamField>
+
+<ParamField body="scheduled_date" type="string">
+  ISO-8601 formatted date/time for scheduled posting (e.g., `2026-03-15T14:30:00`)
+</ParamField>
+
+<ParamField body="timezone" type="string" default="UTC">
+  Timezone for scheduled posting (e.g., `America/New_York`, `Europe/London`)
+</ParamField>
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "clip_index": 0,
+  "api_key": "YOUR_UPLOAD_POST_KEY",
+  "user_id": "myusername",
+  "platforms": ["tiktok", "instagram", "youtube"],
+  "title": "Mind-Blowing AI Secret!",
+  "description": "This AI trick will change everything #ai #tech #viral",
+  "scheduled_date": "2026-03-15T14:30:00",
+  "timezone": "America/Los_Angeles"
+}
+```
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Upload-Post API success status
+</ResponseField>
+
+<ResponseField name="uploadId" type="string">
+  Unique identifier for tracking this upload in Upload-Post
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Upload status (typically `processing` or `queued`)
+</ResponseField>
+
+<ResponseField name="platforms" type="array">
+  Array of platforms the video was submitted to
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "uploadId": "up_abc123xyz",
+  "status": "processing",
+  "platforms": ["tiktok", "instagram", "youtube"],
+  "message": "Video upload initiated"
+}
+```
+
+## GET /api/social/user
+
+Retrieves connected social media profiles from Upload-Post to get the `user_id` for posting.
+
+### Authentication
+
+<ParamField header="X-Upload-Post-Key" type="string" required>
+  Your Upload-Post API key
+</ParamField>
+
+### Response
+
+<ResponseField name="profiles" type="array" required>
+  Array of connected social media profiles
+</ResponseField>
+
+<ResponseField name="profiles[].username" type="string">
+  Profile username (use as `user_id` in POST request)
+</ResponseField>
+
+<ResponseField name="profiles[].connected" type="array">
+  Array of connected platforms for this profile: `["tiktok", "instagram", "youtube"]`
+</ResponseField>
+
+```json
+{
+  "profiles": [
+    {
+      "username": "myusername",
+      "connected": ["tiktok", "instagram", "youtube"]
+    },
+    {
+      "username": "mybrand",
+      "connected": ["tiktok", "instagram"]
+    }
+  ]
+}
+```
+
+## Platform-Specific Behavior
+
+### TikTok
+- Uses `tiktok_title` field (falls back to `description`)
+- Max 2200 characters for caption
+- Hashtags recommended for discoverability
+
+### Instagram Reels
+- Uses `instagram_title` field (falls back to `description`)
+- `media_type` automatically set to `REELS`
+- Max 2200 characters for caption
+
+### YouTube Shorts
+- Uses `youtube_title` (falls back to `title` or AI-generated short title)
+- Uses `youtube_description` field (falls back to `description`)
+- `privacyStatus` set to `public`
+- Max 100 characters for title
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| 404 | Job ID not found |
+| 400 | Job result not available (still processing or failed) |
+| 404 | Video file not found |
+| 400 | Missing required fields (api_key, user_id, platforms) |
+| 401 | Invalid Upload-Post API key |
+| 500 | Upload-Post API error (check response details) |
+
+## Examples
+
+### Post to All Platforms
+
+```bash
+curl -X POST http://localhost:8000/api/social/post \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "api_key": "YOUR_UPLOAD_POST_KEY",
+    "user_id": "myusername",
+    "platforms": ["tiktok", "instagram", "youtube"]
+  }'
+```
+
+### Get User Profiles
+
+```bash
+curl http://localhost:8000/api/social/user \
+  -H "X-Upload-Post-Key: YOUR_UPLOAD_POST_KEY"
+```
+
+### Python SDK Example
+
+```python
+import requests
+
+# 1. Get user profiles
+user_response = requests.get(
+    "http://localhost:8000/api/social/user",
+    headers={"X-Upload-Post-Key": "YOUR_KEY"}
+)
+profiles = user_response.json()["profiles"]
+user_id = profiles[0]["username"]  # Use first profile
+print(f"Using profile: {user_id}")
+
+# 2. Post to social media
+post_url = "http://localhost:8000/api/social/post"
+payload = {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "api_key": "YOUR_UPLOAD_POST_KEY",
+    "user_id": user_id,
+    "platforms": ["tiktok", "instagram", "youtube"],
+    "title": "Mind-Blowing AI Secret!",
+    "description": "This will change everything #ai #viral"
+}
+
+response = requests.post(post_url, json=payload)
+result = response.json()
+
+if result.get("success"):
+    print(f"Upload started: {result['uploadId']}")
+else:
+    print(f"Upload failed: {result}")
+```
+
+### JavaScript/Fetch Example
+
+```javascript
+// Get user profiles
+const getProfiles = async (apiKey) => {
+  const response = await fetch('http://localhost:8000/api/social/user', {
+    headers: {
+      'X-Upload-Post-Key': apiKey
+    }
+  });
+  const data = await response.json();
+  return data.profiles;
+};
+
+// Post to social media
+const postToSocial = async (jobId, clipIndex, apiKey, userId, platforms) => {
+  const response = await fetch('http://localhost:8000/api/social/post', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      clip_index: clipIndex,
+      api_key: apiKey,
+      user_id: userId,
+      platforms: platforms
+    })
+  });
+  
+  return await response.json();
+};
+
+// Usage
+const profiles = await getProfiles('YOUR_KEY');
+console.log('Connected profiles:', profiles);
+
+const result = await postToSocial(
+  '550e8400-e29b-41d4-a716-446655440000',
+  0,
+  'YOUR_KEY',
+  profiles[0].username,
+  ['tiktok', 'instagram', 'youtube']
+);
+console.log('Upload result:', result);
+```
+
+### Schedule Post for Later
+
+```python
+import requests
+from datetime import datetime, timedelta
+
+# Schedule post for 2 days from now at 3 PM EST
+scheduled_time = datetime.now() + timedelta(days=2)
+scheduled_time = scheduled_time.replace(hour=15, minute=0, second=0)
+
+payload = {
+    "job_id": "550e8400-e29b-41d4-a716-446655440000",
+    "clip_index": 0,
+    "api_key": "YOUR_KEY",
+    "user_id": "myusername",
+    "platforms": ["tiktok", "instagram"],
+    "scheduled_date": scheduled_time.isoformat(),
+    "timezone": "America/New_York"
+}
+
+response = requests.post(
+    "http://localhost:8000/api/social/post",
+    json=payload
+)
+print(f"Scheduled for: {scheduled_time}")
+```
+
+### Post Multiple Clips
+
+```python
+import requests
+
+job_id = "550e8400-e29b-41d4-a716-446655440000"
+api_key = "YOUR_UPLOAD_POST_KEY"
+user_id = "myusername"
+
+# Get all clips
+status = requests.get(f"http://localhost:8000/api/status/{job_id}").json()
+clips = status["result"]["clips"]
+
+# Post each clip to TikTok only
+for i, clip in enumerate(clips):
+    response = requests.post(
+        "http://localhost:8000/api/social/post",
+        json={
+            "job_id": job_id,
+            "clip_index": i,
+            "api_key": api_key,
+            "user_id": user_id,
+            "platforms": ["tiktok"],
+            "title": clip["title"],
+            "description": clip["video_description_for_tiktok"]
+        }
+    )
+    result = response.json()
+    print(f"Clip {i+1} uploaded: {result.get('uploadId')}")
+```
+
+## Upload-Post Integration
+
+This endpoint is a proxy to the [Upload-Post API](https://upload-post.com). You need:
+
+1. **Upload-Post Account**: Sign up at https://upload-post.com
+2. **Connected Profiles**: Link TikTok, Instagram, and/or YouTube accounts
+3. **API Key**: Generate in Upload-Post dashboard
+
+<Tip>
+  Use `/api/social/user` to verify your profiles are connected before posting.
+</Tip>
+
+## Async Upload Behavior
+
+The endpoint uses `async_upload: true`, which means:
+
+- API returns immediately after accepting the upload
+- Video processes in Upload-Post's background queue
+- Check Upload-Post dashboard for final status
+- No webhook callbacks currently supported
+
+## Performance Notes
+
+- **Request Time**: < 5 seconds (just uploads file to Upload-Post)
+- **Actual Posting**: Happens asynchronously in Upload-Post's queue
+- **File Size**: Supports up to 2GB videos
+- **Timeout**: 120 seconds for the HTTP request
+
+## Next Steps
+
+- Review Upload-Post dashboard to monitor upload status
+- Check social media platforms for published content
+- [Process more videos](/api/process) for continuous content creation
