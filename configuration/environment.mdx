@@ -85,6 +85,16 @@ Enable automatic backup of generated clips to AWS S3. All variables must be set 
   **Note:** Only needed when deploying frontend and backend to different domains. Development mode uses Vite proxy.
 </ParamField>
 
+<ParamField path="VITE_ENCRYPTION_KEY" type="string">
+  Secret key for encrypting API keys stored in browser localStorage.
+  
+  **Default:** `"OpenShorts-Static-Salt-Change-Me"`
+  
+  **Security:** Change this to a random string in production to prevent unauthorized decryption of stored API keys.
+  
+  **Example:** `VITE_ENCRYPTION_KEY=my-super-secret-random-key-12345`
+</ParamField>
+
 ## Loading Environment Variables
 
 OpenShorts automatically loads environment variables from `.env` using `python-dotenv`:
