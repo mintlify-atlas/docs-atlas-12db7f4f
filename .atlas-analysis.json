@@ -1,0 +1,110 @@
+{
+  "projectType": "saas",
+  "projectName": "OpenShorts",
+  "projectDescription": "AI-powered platform to automatically generate viral vertical short-form videos from long YouTube videos or local uploads",
+  "theme": "palm",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#6D28D9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/viral-detection",
+              "features/ai-cropping",
+              "features/social-posting",
+              "features/voice-dubbing",
+              "features/youtube-studio"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/processing-videos",
+              "guides/editing-clips",
+              "guides/customization",
+              "guides/social-integration",
+              "guides/aws-s3-backup"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/api-keys",
+              "configuration/docker"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/overview",
+              "api/process",
+              "api/status",
+              "api/edit",
+              "api/subtitle",
+              "api/hook",
+              "api/translate",
+              "api/social",
+              "api/thumbnail"
+            ]
+          },
+          {
+            "group": "Core Modules",
+            "pages": [
+              "api/modules/main",
+              "api/modules/editor",
+              "api/modules/subtitles",
+              "api/modules/hooks",
+              "api/modules/translate"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Viral moment detection using Google Gemini 2.0 Flash",
+    "AI-powered cropping with MediaPipe face detection and YOLOv8",
+    "Automated social media posting to TikTok, Instagram, and YouTube",
+    "AI voice dubbing with ElevenLabs (30+ languages)",
+    "YouTube Studio with AI titles, thumbnails, and descriptions",
+    "Real-time web dashboard with live progress tracking",
+    "Automated S3 backup for generated clips",
+    "Smart scene detection with dual-mode reframing"
+  ],
+  "publicApiSurface": [
+    "POST /api/process - Submit video for processing",
+    "GET /api/status/{job_id} - Poll job status and logs",
+    "POST /api/edit - Apply AI video effects",
+    "POST /api/subtitle - Generate and apply subtitles",
+    "POST /api/hook - Add text hook overlays",
+    "POST /api/translate - AI voice dubbing",
+    "POST /api/social/post - Post to social media",
+    "POST /api/thumbnail/analyze - Analyze video for titles",
+    "POST /api/thumbnail/generate - Generate YouTube thumbnails",
+    "POST /api/thumbnail/publish - Publish to YouTube",
+    "process_video_to_vertical() - Core vertical video processing",
+    "transcribe_video() - Faster-Whisper transcription",
+    "get_viral_clips() - Gemini AI clip analysis",
+    "SmoothedCameraman - Camera stabilization class",
+    "SpeakerTracker - Active speaker tracking"
+  ]
+}
